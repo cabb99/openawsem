@@ -26,13 +26,13 @@ def read_gamma(gammaFile):
     return gamma_direct, gamma_mediated
 
 
-def inWhichChain(residueId, chain_ends):
+def inWhichChain(residueId, chain_ends, number=False):
     chain_table = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
     for i, end_of_chain_resId in enumerate(chain_ends):
         if end_of_chain_resId < residueId:
             pass
         else:
-            return chain_table[i]
+            return i if number else chain_table[i]
 
 
 def contact_term(oa, k_contact=4.184, z_dependent=False, z_m=1.5, inMembrane=False, membrane_center=0*angstrom, k_relative_mem=1.0, periodic=False, parametersLocation=".", burialPartOn=True, withExclusion=True, forceGroup=22,
@@ -96,18 +96,6 @@ def contact_term(oa, k_contact=4.184, z_dependent=False, z_m=1.5, inMembrane=Fal
             protein_gamma_ijm[m][i][j] = gamma_mediated[count][0]
             protein_gamma_ijm[m][j][i] = gamma_mediated[count][0]
             count += 1
-    # residue interaction table (step(abs(resId1-resId2)-min_sequence_separation))
-    res_table = np.zeros((nwell, oa.nres, oa.nres))
-    for i in range(oa.nres):
-        for j in range(oa.nres):
-            resId1 = i
-            chain1 = inWhichChain(resId1, oa.chain_ends)
-            resId2 = j
-            chain2 = inWhichChain(resId2, oa.chain_ends)
-            if abs(resId1-resId2)-min_sequence_separation >= 0 or chain1 != chain2:
-                res_table[0][i][j] = 1
-            else:
-                res_table[0][i][j] = 0
 
 
     if z_dependent or inMembrane:
@@ -131,28 +119,22 @@ def contact_term(oa, k_contact=4.184, z_dependent=False, z_m=1.5, inMembrane=Fal
                 protein_gamma_ijm[m][i][j] = mem_gamma_mediated[count][0]*k_relative_mem
                 protein_gamma_ijm[m][j][i] = mem_gamma_mediated[count][0]*k_relative_mem
                 count += 1
-        for i in range(oa.nres):
-            for j in range(oa.nres):
-                resId1 = i
-                chain1 = inWhichChain(resId1, oa.chain_ends)
-                resId2 = j
-                chain2 = inWhichChain(resId2, oa.chain_ends)
-                if abs(resId1-resId2)-min_sequence_separation_mem >= 0 or chain1 != chain2:
-                    res_table[m][i][j] = 1
-                else:
-                    res_table[m][i][j] = 0
 
     contact.addTabulatedFunction("gamma_ijm", Discrete3DFunction(nwell, 20, 20, gamma_ijm.T.flatten()))
     contact.addTabulatedFunction("water_gamma_ijm", Discrete3DFunction(nwell, 20, 20, water_gamma_ijm.T.flatten()))
     contact.addTabulatedFunction("protein_gamma_ijm", Discrete3DFunction(nwell, 20, 20, protein_gamma_ijm.T.flatten()))
     contact.addTabulatedFunction("burial_gamma_ij", Discrete2DFunction(20, 3, burial_gamma.T.flatten()))
-    contact.addTabulatedFunction("res_table", Discrete3DFunction(nwell, oa.nres, oa.nres, res_table.T.flatten()))
 
     contact.addPerParticleParameter("resName")
     contact.addPerParticleParameter("resId")
     contact.addPerParticleParameter("isCb")
+    contact.addPerParticleParameter("chain")
+
+    contact.addGlobalParameter("min_sequence_separation",min_sequence_separation)
+    contact.addGlobalParameter("min_sequence_separation_mem",min_sequence_separation_mem)
 
     contact.addComputedValue("rho", f"isCb1*isCb2*step(abs(resId1-resId2)-2)*0.25*(1+tanh({eta}*(r-{r_min})))*(1+tanh({eta}*({r_max}-r)))", CustomGBForce.ParticlePair)
+
     #contact.addComputedValue("rho_test",f"isCb1*isCb2*step(abs(resId1-resId2)-2)", CustomGBForce.ParticlePair)
 
     # if z_dependent:
@@ -167,7 +149,10 @@ def contact_term(oa, k_contact=4.184, z_dependent=False, z_m=1.5, inMembrane=Fal
     none_cb_fixed = [i for i in range(oa.natoms) if i not in cb_fixed]
     # print(oa.natoms, len(oa.resi), oa.resi, seq)
     for i in range(oa.natoms):
-        contact.addParticle([gamma_se_map_1_letter[seq[oa.resi[i]]], oa.resi[i], int(i in cb_fixed)])
+        contact.addParticle([gamma_se_map_1_letter[seq[oa.resi[i]]],
+                             oa.resi[i],
+                             int(i in cb_fixed),
+                             inWhichChain(oa.resi[i], oa.chain_ends,number=True)])
 
 
     if z_dependent:
@@ -178,17 +163,19 @@ def contact_term(oa, k_contact=4.184, z_dependent=False, z_m=1.5, inMembrane=Fal
         # contact.addComputedValue("isInMembrane", f"step({z_m}-abs(z))", CustomGBForce.SingleParticle)
 
         # mediated and direct term (write separately may lead to bug)
-        contact.addEnergyTerm(f"isCb1*isCb2*((1-alphaMembrane1*alphaMembrane2)*water_part+alphaMembrane1*alphaMembrane2*membrane_part);\
-                                water_part=-res_table(0, resId1, resId2)*{k_contact}*\
-                                (gamma_ijm(0, resName1, resName2)*theta+thetaII*(sigma_water*water_gamma_ijm(0, resName1, resName2)+\
-                                sigma_protein*protein_gamma_ijm(0, resName1, resName2)));\
-                                membrane_part=-res_table(1, resId1, resId2)*{k_contact}*\
-                                (gamma_ijm(1, resName1, resName2)*theta+thetaII*(sigma_water*water_gamma_ijm(1, resName1, resName2)+\
-                                sigma_protein*protein_gamma_ijm(1, resName1, resName2)));\
-                                sigma_protein=1-sigma_water;\
-                                theta=0.25*(1+tanh({eta}*(r-{r_min})))*(1+tanh({eta}*({r_max}-r)));\
-                                thetaII=0.25*(1+tanh({eta}*(r-{r_minII})))*(1+tanh({eta}*({r_maxII}-r)));\
-                                sigma_water=0.25*(1-tanh({eta_sigma}*(rho1-{rho_0})))*(1-tanh({eta_sigma}*(rho2-{rho_0})))",
+        contact.addEnergyTerm(f"isCb1*isCb2*((1-alphaMembrane1*alphaMembrane2)*water_part+alphaMembrane1*alphaMembrane2*membrane_part);"
+                              f"water_part=-res_table0*{k_contact}*"
+                              f"(gamma_ijm(0, resName1, resName2)*theta+thetaII*(sigma_water*water_gamma_ijm(0, resName1, resName2)+"
+                              f"sigma_protein*protein_gamma_ijm(0, resName1, resName2)));"
+                              f"membrane_part=-res_table1*{k_contact}*"
+                              f"(gamma_ijm(1, resName1, resName2)*theta+thetaII*(sigma_water*water_gamma_ijm(1, resName1, resName2)+"
+                              f"sigma_protein*protein_gamma_ijm(1, resName1, resName2)));"
+                              f"sigma_protein=1-sigma_water;"
+                              f"theta=0.25*(1+tanh({eta}*(r-{r_min})))*(1+tanh({eta}*({r_max}-r)));"
+                              f"thetaII=0.25*(1+tanh({eta}*(r-{r_minII})))*(1+tanh({eta}*({r_maxII}-r)));"
+                              f"sigma_water=0.25*(1-tanh({eta_sigma}*(rho1-{rho_0})))*(1-tanh({eta_sigma}*(rho2-{rho_0})));"
+                              f"res_table0=isCb1*isCb2*step(abs(resId1-resId2)-min_sequence_separation)*step(abs(chain1-chain2));"
+                              f"res_table1=isCb1*isCb2*step(abs(resId1-resId2)-min_sequence_separation_mem)*step(abs(chain1-chain2));",
                                 CustomGBForce.ParticlePair)
 
 
@@ -215,13 +202,15 @@ def contact_term(oa, k_contact=4.184, z_dependent=False, z_m=1.5, inMembrane=Fal
         #                         CustomGBForce.ParticlePair)
     else:
         # mediated and direct term (write separately may lead to bug)
-        contact.addEnergyTerm(f"-isCb1*isCb2*res_table({inMembrane}, resId1, resId2)*{k_contact}*\
+        contact.addEnergyTerm(f"-isCb1*isCb2*res_table{inMembrane}*{k_contact}*\
                                 (gamma_ijm({inMembrane}, resName1, resName2)*theta+thetaII*(sigma_water*water_gamma_ijm({inMembrane}, resName1, resName2)+\
                                 sigma_protein*protein_gamma_ijm({inMembrane}, resName1, resName2)));\
                                 sigma_protein=1-sigma_water;\
                                 theta=0.25*(1+tanh({eta}*(r-{r_min})))*(1+tanh({eta}*({r_max}-r)));\
                                 thetaII=0.25*(1+tanh({eta}*(r-{r_minII})))*(1+tanh({eta}*({r_maxII}-r)));\
-                                sigma_water=0.25*(1-tanh({eta_sigma}*(rho1-{rho_0})))*(1-tanh({eta_sigma}*(rho2-{rho_0})))",
+                                sigma_water=0.25*(1-tanh({eta_sigma}*(rho1-{rho_0})))*(1-tanh({eta_sigma}*(rho2-{rho_0})));"
+                              f"res_table0=isCb1*isCb2*step(abs(resId1-resId2)-min_sequence_separation)*step(abs(chain1-chain2));"
+                              f"res_table1=isCb1*isCb2*step(abs(resId1-resId2)-min_sequence_separation_mem)*step(abs(chain1-chain2));",
                                 CustomGBForce.ParticlePair)
         # contact.addEnergyTerm(f"-1*rho1*rho2;",
         #                         CustomGBForce.ParticlePair)
@@ -400,7 +389,6 @@ def contact_term_reference(oa, k_contact=4.184, z_dependent=False, z_m=1.5, inMe
     contact.addPerParticleParameter("isCb")
 
     contact.addComputedValue("rho", f"isCb1*isCb2*step(abs(resId1-resId2)-2)*0.25*(1+tanh({eta}*(r-{r_min})))*(1+tanh({eta}*({r_max}-r)))", CustomGBForce.ParticlePair)
-
 
     # if z_dependent:
     #     contact.addComputedValue("isInMembrane", f"step({z_m}-abs(z))", CustomGBForce.SingleParticle)

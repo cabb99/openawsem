@@ -47,13 +47,15 @@ def isChainEdge(residueId, chain_starts, chain_ends, n=2):
     #         atEnd = True
     # return (atBegin or atEnd)
 
-def inWhichChain(residueId, chain_ends):
+def inWhichChain(residueId, chain_ends, number=False):
     chain_table = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
     for i, end_of_chain_resId in enumerate(chain_ends):
         if end_of_chain_resId < residueId:
             pass
         else:
-            return chain_table[i]
+            return i if number else chain_table[i]
+        
+
 
 def read_beta_parameters():
     ### directly copied from Nick Schafer's
@@ -100,6 +102,12 @@ def get_lambda_by_index(i, j, lambda_i):
         return lambda_table[lambda_i][2]
     else:
         return 0
+        
+    f"select(w45,select(w18,select(w4,{lambda_table[lambda_i][0]},{lambda_table[lambda_i][1]}),{lambda_table[lambda_i][2]}),0)"
+    f"w4 = step(dji-4);"
+    f"w18 = step(dji-18);"
+    f"w45 = step(dji-45);"
+    f"dji = abs(j-i)"
 
 def get_alpha_by_index(i, j, alpha_i):
     alpha_table = [[1.30, 1.30, 1.30],
