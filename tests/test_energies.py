@@ -130,14 +130,14 @@ def save_energies():
         termEnergies.to_csv(f'{protein}_energies.csv', index=False, float_format='%.6f')
 
 def benchmark(protein, simulation_platform, timing_function = time_once, n_steps=100):
-    chain = openawsem.helperFunctions.myFunctions.getAllChains(f"{protein}-crystal_structure.pdb")
-    seq = openawsem.helperFunctions.myFunctions.read_fasta(f"{protein}-crystal_structure.fasta")
-    pdb_trajectory = md.load(f'{protein}-movie.dcd', top=f"{protein}-openmmawsem.pdb")
+    chain = openawsem.helperFunctions.myFunctions.getAllChains(data_path/f"{protein}-crystal_structure.pdb")
+    seq = openawsem.helperFunctions.myFunctions.read_fasta(data_path/f"{protein}-crystal_structure.fasta")
+    pdb_trajectory = md.load(data_path/f'{protein}-movie.dcd', top=data_path/f"{protein}-openmmawsem.pdb")
 
     benchmark_data=[]
     for force_name in ['Backbone', 'Rama', 'Contact', 'Chain', 'Chi', 'Excluded', 'RamaProline', 'RamaSSWeight', 'Beta1', 'Beta2', 'Beta3', 'Helical', 'Pap1', 'Pap2', 'FragmentMemory', 'DebyeHuckel','All']:
         # Setup forces
-        oa = openawsem.OpenMMAWSEMSystem(f"{protein}-openmmawsem.pdb",
+        oa = openawsem.OpenMMAWSEMSystem(data_path/f"{protein}-openmmawsem.pdb",
                                          chains=chain,
                                          k_awsem=1.0,
                                          xml_filename=openawsem.xml,
@@ -187,13 +187,35 @@ def analyzed_data():
 class TestEnergyTerms:
     def test_energy_term(self, platform, column, analyzed_data):
         tolerance = 1e-5
+        discrepancies = []
+
         for protein in PROTEINS:
             calculated_energies = analyzed_data(protein, platform)
             saved_energies = pd.read_csv(data_path/f'{protein}_energies.csv')
 
             assert column in calculated_energies.columns, f"Column {column} not found in calculated energies for protein {protein} on platform {platform}"
             assert column in saved_energies.columns, f"Column {column} not found in saved energies for protein {protein} on platform {platform}"
-            assert np.allclose(calculated_energies[column], saved_energies[column], atol=tolerance), f"Energy terms comparison failed for protein {protein} on column {column} on platform {platform}"
+            #assert np.allclose(calculated_energies[column], saved_energies[column], atol=tolerance), f"Energy terms comparison failed for protein {protein} on column {column} on platform {platform}"
+
+             # Create a boolean array where True indicates values are close enough
+            close_enough = np.isclose(calculated_energies[column], saved_energies[column], atol=tolerance)
+            not_close_indices = np.where(~close_enough)[0]
+
+            if not_close_indices.size > 0:
+                for index in not_close_indices:
+                    discrepancies.append({
+                        'Protein': protein,
+                        'Index': index,
+                        'Expected Value': saved_energies[column][index],
+                        'Calculated Value': calculated_energies[column][index],
+                        'Difference': calculated_energies[column][index] - saved_energies[column][index]
+                })
+
+        if discrepancies:
+            all_discrepancies = pd.DataFrame(discrepancies)
+            error_message = f"Energy terms comparison discrepancies found:\n{all_discrepancies.to_string(index=False)}"
+            assert False, error_message
+
 
 
 if __name__ == '__main__':
@@ -205,9 +227,9 @@ if __name__ == '__main__':
     data = pd.DataFrame(data, columns=['protein', 'simulation_platform', 'force_name', 'setup_time', 'simulation_time'])
     data.to_csv('Benchmark_data_once.csv')
 
-    data = []
-    for protein in PROTEINS:
-        for platform in PLATFORMS:
-            data += benchmark(protein, platform, time_many)
-    data = pd.DataFrame(data, columns=['protein', 'simulation_platform', 'force_name', 'setup_time', 'simulation_time'])
-    data.to_csv('Benchmark_data_many.csv')
+    # data = []
+    # for protein in PROTEINS:
+    #     for platform in PLATFORMS:
+    #         data += benchmark(protein, platform, time_many)
+    # data = pd.DataFrame(data, columns=['protein', 'simulation_platform', 'force_name', 'setup_time', 'simulation_time'])
+    # data.to_csv('Benchmark_data_many.csv')
