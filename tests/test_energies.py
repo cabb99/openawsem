@@ -233,3 +233,18 @@ if __name__ == '__main__':
     #         data += benchmark(protein, platform, time_many)
     # data = pd.DataFrame(data, columns=['protein', 'simulation_platform', 'force_name', 'setup_time', 'simulation_time'])
     # data.to_csv('Benchmark_data_many.csv')
+
+    old_data = pd.read_csv(data_path/'Benchmark_data_many.csv')
+    merged_data = pd.merge(data, old_data, on=['protein', 'simulation_platform', 'force_name'], suffixes=('_new', '_old'))
+
+    # Calculating differences in setup and simulation times
+    merged_data['setup_time_improvement'] = merged_data['setup_time_old'] / merged_data['setup_time_new']
+    merged_data['simulation_time_improvement'] = merged_data['simulation_time_old'] / merged_data['simulation_time_new']
+
+
+    # Display improvements
+    print("Improvements (positive values indicate improvement):")
+    print(merged_data[['protein', 'simulation_platform', 'force_name', 'setup_time_improvement', 'simulation_time_improvement']])
+
+    print(merged_data[merged_data['force_name']=='Contact'].sort_values('simulation_time_improvement'))
+

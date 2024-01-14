@@ -134,8 +134,8 @@ def contact_term(oa, k_contact=4.184, z_dependent=False, z_m=1.5, inMembrane=Fal
     contact.addPerParticleParameter("isCb")
     contact.addPerParticleParameter("chain")
 
-    contact.addGlobalParameter("min_sequence_separation0",min_sequence_separation)
-    contact.addGlobalParameter("min_sequence_separation1",min_sequence_separation_mem)
+    contact.addGlobalParameter("min_sequence_separation0",min_sequence_separation-1)
+    contact.addGlobalParameter("min_sequence_separation1",min_sequence_separation_mem-1)
 
     contact.addComputedValue("rho", f"isCb1*isCb2*step(abs(resId1-resId2)-2)*0.25*(1+tanh({eta}*(r-{r_min})))*(1+tanh({eta}*({r_max}-r)))", CustomGBForce.ParticlePair)
 
@@ -213,16 +213,16 @@ def contact_term(oa, k_contact=4.184, z_dependent=False, z_m=1.5, inMembrane=Fal
         #                         CustomGBForce.ParticlePair)
     else:
         # mediated and direct term (write separately may lead to bug)
-        contact.addEnergyTerm(f"-isCb1*isCb2*(1-(1-other_chain)*(1-far_residue{inMembrane}))*energy;"
-                              f"energy = {k_contact}*(theta * gamma_ijm({inMembrane}, resName1, resName2)+"
-                                                     f"thetaII * (sigma_water * water_gamma_ijm({inMembrane}, resName1, resName2)+"
-                                                                f"sigma_protein * protein_gamma_ijm({inMembrane}, resName1, resName2)));"
+        contact.addEnergyTerm(f"{-1*k_contact/4}*filter*(theta * gamma_ijm({inMembrane}, resName1, resName2)+"
+                                                f"thetaII * (sigma_water * water_gamma_ijm({inMembrane}, resName1, resName2)+"
+                                                           f"sigma_protein * protein_gamma_ijm({inMembrane}, resName1, resName2)));"
                               f"sigma_protein=1-sigma_water;"
-                              f"theta=0.25*(1+tanh({eta}*(r-{r_min})))*(1+tanh({eta}*({r_max}-r)));"
-                              f"thetaII=0.25*(1+tanh({eta}*(r-{r_minII})))*(1+tanh({eta}*({r_maxII}-r)));"
+                              f"theta=(1+tanh({eta}*(r-{r_min})))*(1+tanh({eta}*({r_max}-r)));"
+                              f"thetaII=(1+tanh({eta}*(r-{r_minII})))*(1+tanh({eta}*({r_maxII}-r)));"
                               f"sigma_water=0.25*(1-tanh({eta_sigma}*(rho1-{rho_0})))*(1-tanh({eta_sigma}*(rho2-{rho_0})));"
-                              f"other_chain = step(abs(chain1-chain2)-1);"
-                              f"far_residue{inMembrane}=step(abs(resId1-resId2)-min_sequence_separation{inMembrane});"
+                              f"filter=isCb1*isCb2*(1-same_chain*close_residue{inMembrane});"
+                              f"same_chain = delta(chain1-chain2);"
+                              f"close_residue{inMembrane}=step(min_sequence_separation{inMembrane}-abs(resId1-resId2));"
                               , CustomGBForce.ParticlePair)
         # contact.addEnergyTerm(f"-1*rho1*rho2;",
         #                         CustomGBForce.ParticlePair)
