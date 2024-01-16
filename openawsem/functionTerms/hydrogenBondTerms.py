@@ -108,10 +108,12 @@ def get_lambda_by_index(i, j, lambda_i):
         return 0
         
     f"select(w45,select(w18,select(w4,{lambda_table[lambda_i][0]},{lambda_table[lambda_i][1]}),{lambda_table[lambda_i][2]}),0)"
+    
+    f"w4*{lambda_table[lambda_i][0]}+w18*{lambda_table[lambda_i][1]-lambda_table[lambda_i][0]}+w45*{lambda_table[lambda_i][2]-lambda_table[lambda_i][1]-lambda_table[lambda_i][0]};"
     f"w4 = step(dji-4);"
     f"w18 = step(dji-18);"
     f"w45 = step(dji-45);"
-    f"dji = abs(j-i)"
+    f"dji = abs(j-i)-0.5"
 
 def get_alpha_by_index(i, j, alpha_i):
     alpha_table = [[1.30, 1.30, 1.30],
@@ -226,10 +228,10 @@ def beta_term_1(oa, k=0.5*kilocalories_per_mole, forceGroup=27):
     r_OH = .206
     sigma_HO = .076
 
-    lambda_1 = np.zeros((nres, nres))
-    for i in range(nres):
-        for j in range(nres):
-            lambda_1[i][j] = get_lambda_by_index(i, j, 0)
+    # lambda_1 = np.zeros((nres, nres))
+    # for i in range(nres):
+    #     for j in range(nres):
+    #         lambda_1[i][j] = get_lambda_by_index(i, j, 0)
     theta_ij = f"exp(-(r_Oi_Nj-{r_ON})^2/(2*{sigma_NO}^2)-(r_Oi_Hj-{r_OH})^2/(2*{sigma_HO}^2))"
     mu_1 = 10  # nm^-1
     # mu_2 = 5   # nm^-1
@@ -237,11 +239,25 @@ def beta_term_1(oa, k=0.5*kilocalories_per_mole, forceGroup=27):
     # v1i ensures the hydrogen bonding does not occur when five residue segment is shorter than 12 A
     # v1i = f"0.5*(1+tanh({mu_1}*(distance(a2,a3)-{rcHB})))"
     v1i = "1"
-    beta_string_1 = f"-{k_beta}*lambda_1(res_i,res_j)*theta_ij*v1i;theta_ij={theta_ij};v1i={v1i};r_Oi_Nj=distance(a1,d1);r_Oi_Hj=distance(a1,d2);"
-    beta_1 = CustomHbondForce(beta_string_1)
+    #beta_string_1 = f"-{k_beta}*lambda_1(res_i,res_j)*theta_ij*v1i;theta_ij={theta_ij};v1i={v1i};r_Oi_Nj=distance(a1,d1);r_Oi_Hj=distance(a1,d2);"
+    lambda_table = [[1.37, 1.36, 1.17],
+                    [3.89, 3.50, 3.52],
+                    [0.00, 3.47, 3.62]]
+    lambda_i=0
+    beta_1 = CustomHbondForce(f"-{k_beta}*lambda_1*theta_ij*v1i;"
+                              f"theta_ij={theta_ij};v1i={v1i};"
+                              f"r_Oi_Nj=distance(a1,d1);"
+                              f"r_Oi_Hj=distance(a1,d2);"    
+                              f"lambda_1=w4*{lambda_table[lambda_i][0]}+w18*{lambda_table[lambda_i][1]-lambda_table[lambda_i][0]}+w45*{lambda_table[lambda_i][2]-lambda_table[lambda_i][1]};"
+                              f"w4 = step(dji-4);"
+                              f"w18 = step(dji-18);"
+                              f"w45 = step(dji-45);"
+                              f"dji = abs(res_j-res_i)+0.5")
+    print(f"lambda_1=w4*{lambda_table[lambda_i][0]:.2f}+w18*{lambda_table[lambda_i][1]-lambda_table[lambda_i][0]:.2f}+w45*{lambda_table[lambda_i][2]-lambda_table[lambda_i][1]:.2f};")
+    #beta_1 = CustomHbondForce(beta_string_1)
     beta_1.addPerDonorParameter("res_i")
     beta_1.addPerAcceptorParameter("res_j")
-    beta_1.addTabulatedFunction("lambda_1", Discrete2DFunction(nres, nres, lambda_1.T.flatten()))
+    #beta_1.addTabulatedFunction("lambda_1", Discrete2DFunction(nres, nres, lambda_1.T.flatten()))
     # print(lambda_1)
     # print(len(oa.o), nres)
     for i in range(nres):
