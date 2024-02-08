@@ -58,7 +58,7 @@ def set_up_forces(oa, protein, force_name=None):
     all_forces = {
         "Backbone": lambda: openawsem.functionTerms.basicTerms.con_term(oa),
         "Rama": lambda: openawsem.functionTerms.basicTerms.rama_term(oa),
-        "Contact": lambda: openawsem.functionTerms.contactTerms.contact_term(oa),
+        "Contact": lambda: openawsem.functionTerms.contactTerms.contact_term(oa,withExclusion=False),
         "Chain": lambda: openawsem.functionTerms.basicTerms.chain_term(oa),
         "Chi": lambda: openawsem.functionTerms.basicTerms.chi_term(oa),
         "Excluded": lambda: openawsem.functionTerms.basicTerms.excl_term(oa, periodic=False),
@@ -246,5 +246,5 @@ if __name__ == '__main__':
     print("Improvements (positive values indicate improvement):")
     print(merged_data[['protein', 'simulation_platform', 'force_name', 'setup_time_improvement', 'simulation_time_improvement']])
 
-    print(merged_data[merged_data['force_name'].isin(['Contact','Beta1','Beta2','Beta3'])&merged_data['simulation_platform'].isin(['CUDA','OpenCL'])].sort_values('simulation_time_improvement'))
+    print(merged_data[merged_data['force_name'].isin(['Contact','Beta1','Beta2','Beta3','DebyeHuckel'])&merged_data['simulation_platform'].isin(['CUDA','OpenCL'])].sort_values('simulation_time_improvement'))
 
