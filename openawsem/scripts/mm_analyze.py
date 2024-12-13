@@ -89,7 +89,7 @@ def analyze(args):
     # print(spec)
     forces = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(forces)
-    forces = forces.set_up_forces(oa, computeQ=True, submode=args.subMode, contactParameterLocation=parametersLocation)
+    forces = forces.set_up_forces(oa, computeQ=False, submode=args.subMode, contactParameterLocation=parametersLocation)
     oa.addForcesWithDefaultForceGroup(forces)
     # print(forces)
 
