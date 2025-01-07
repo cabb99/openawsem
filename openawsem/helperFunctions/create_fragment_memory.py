@@ -416,165 +416,143 @@ def create_fragment_memories(database, fasta_file, memories_per_position, brain_
     N_mem=memories_per_position
     residue_base=0
 
+    with open('frags.mem', 'w') as LAMWmatch, open('log.mem', 'w') as log_match:
+        LAMWmatch.write('[Target]' + "\n")
+        LAMWmatch.write("query" + "\n\n" + '[Memories]' + "\n")
+        for record in SeqIO.parse(handle, "fasta"):
+            # Part I, BLAST fragments
+            if(len(record.seq) < fragment_length):
+                print("Exception::query sequence is shorter than " + str(fragment_length) + " residues. Exit.")
+                sys.exit()
 
-    for record in SeqIO.parse(handle, "fasta"):
-        # Part I, BLAST fragments
-        if(len(record.seq) < fragment_length):
-            print("Exception::query sequence is shorter than " + str(fragment_length) + " residues. Exit.")
-            sys.exit()
-
-        query = str(record.name)[0:4]
-        print('processing sequence:', record.name)
+            query = str(record.name)[0:4]
+            chain = record.name.split(":")[-1]
+            print('processing sequence:', record.name)
 
 
-        # FRAGMENT GENERATION LOOP
-        iterations = len(record.seq) - fragment_length + \
-            1  # number of sliding windows
+            # FRAGMENT GENERATION LOOP
+            iterations = len(record.seq) - fragment_length + \
+                1  # number of sliding windows
 
-        with ThreadPoolExecutor(max_workers=12) as executor:
-            futures={}
-            for i in range(1, iterations + 1):
-                future = executor.submit(process_window, i, record, fragment_length, evalue_threshold, database, residue_base)
-                futures[future] = i-1
-            results = [None] * len(futures)
-            for future in as_completed(futures):
-                i = futures[future]
-                results[i] = future.result()
+            with ThreadPoolExecutor(max_workers=12) as executor:
+                futures={}
+                for i in range(1, iterations + 1):
+                    future = executor.submit(process_window, i, record, fragment_length, evalue_threshold, database, residue_base)
+                    futures[future] = i-1
+                results = [None] * len(futures)
+                for future in as_completed(futures):
+                    i = futures[future]
+                    results[i] = future.result()
+                
+            # Writing the results to the match file in the order of execution
+            with open('prepFrags.match', 'w') as match:
+                match.write(query + "\n")
+                for result in results:
+                    for line in result:
+                        match.write(line + '\n')
+
+            with open(f'prepFrags_{chain}.log', 'a') as match:
+                match.write(query + "\n")
+                for result in results:
+                    for line in result:
+                        match.write(line + '\n')
+
+            # loop2 close
+            with open('prepFrags.match', 'r') as match:
+                # list unique PDB IDs for downloading later
+                matchlines = list()
+                keys = {}
+                for line in match.readlines():
+                    matchlines.append(line)
+                    entries = line.split()
+                    entry = entries[0]
+                    if entry[:3] == "pdb":
+                        # for example 'pdb|4V12|A'
+                        pdbfull = str(entry[4:8]) + str(entry[9:])
+                    else:
+                        pdbfull = str(entry)
+                    keys[pdbfull] = 1
+                unique = list(keys.keys())
+
+            # pdbparse=PDBParser(PERMISSIVE=1)
+
+            # Part II, BLAST the whole sequence to find homologs
+            print(record.seq)
+            fragment = open('fragment.fasta', 'w')
+            fragment.write(str(record.seq))
+            fragment.close()
             
-        # Writing the results to the match file in the order of execution
-        with open('prepFrags.match', 'w') as match:
-            match.write(query + "\n")
-            for result in results:
-                for line in result:
-                    match.write(line + '\n')
+            #Download PDBs
+            failed_pdb = {pdb_id[0:4].lower():1 for pdb_id in unique}
+            failed_pdb.update(download_pdbs([pdb_id[0:4].lower() for pdb_id in unique if pdb_id[0:4].lower() not in failed_download_pdb_list], pdb_dir))
+            homo = {pdbID:0 for pdbID in failed_pdb if not failed_pdb[pdbID]}
+            homo_count = {pdbID:0 for pdbID in failed_pdb if not failed_pdb[pdbID]}
+            update_failed_pdb_list(failed_pdb,failed_pdb_list_file)
 
-
-        # loop2 close
-        with open('prepFrags.match', 'r') as match:
-            # list unique PDB IDs for downloading later
-            matchlines = list()
-            keys = {}
-            for line in match.readlines():
-                matchlines.append(line)
+            # blast the whole sequence to identify homologs Evalue 0.005
+            exeline = "psiblast -num_iterations 1 -word_size 3 -evalue 0.005"
+            exeline += " -outfmt '6 sseqid slen bitscore score evalue pident' -matrix BLOSUM62 -db " + \
+                database + " -query fragment.fasta"
+            print("finding homologs")
+            print("executing::: " + exeline)
+            homoOut = os.popen(exeline).read()
+            homoOut = homoOut.splitlines()  # now an array
+            for line in homoOut:
                 entries = line.split()
-                entry = entries[0]
-                if entry[:3] == "pdb":
-                    # for example 'pdb|4V12|A'
-                    pdbfull = str(entry[4:8]) + str(entry[9:])
-                else:
-                    pdbfull = str(entry)
-                keys[pdbfull] = 1
-            unique = list(keys.keys())
-
-        # pdbparse=PDBParser(PERMISSIVE=1)
-
-        # Part II, BLAST the whole sequence to find homologs
-        print(record.seq)
-        fragment = open('fragment.fasta', 'w')
-        fragment.write(str(record.seq))
-        fragment.close()
-        
-        #Download PDBs
-        failed_pdb = {pdb_id[0:4].lower():1 for pdb_id in unique}
-        failed_pdb.update(download_pdbs([pdb_id[0:4].lower() for pdb_id in unique if pdb_id[0:4].lower() not in failed_download_pdb_list], pdb_dir))
-        homo = {pdbID:0 for pdbID in failed_pdb if not failed_pdb[pdbID]}
-        homo_count = {pdbID:0 for pdbID in failed_pdb if not failed_pdb[pdbID]}
-        update_failed_pdb_list(failed_pdb,failed_pdb_list_file)
-
-        # blast the whole sequence to identify homologs Evalue 0.005
-        exeline = "psiblast -num_iterations 1 -word_size 3 -evalue 0.005"
-        exeline += " -outfmt '6 sseqid slen bitscore score evalue pident' -matrix BLOSUM62 -db " + \
-            database + " -query fragment.fasta"
-        print("finding homologs")
-        print("executing::: " + exeline)
-        homoOut = os.popen(exeline).read()
-        homoOut = homoOut.splitlines()  # now an array
-        for line in homoOut:
-            entries = line.split()
-            print("homologues: ", entries)
-            if len(entries):
-                pdbfull = entries[0]
-                pdbID = pdbfull[0:4].lower()
-                if brain_damage == 2:
-                    identity = float(entries[5])
-                    # exclude self(>90% identity)
-                    if identity <= cutoff_identical:
+                print("homologues: ", entries)
+                if len(entries):
+                    pdbfull = entries[0]
+                    pdbID = pdbfull[0:4].lower()
+                    if brain_damage == 2:
+                        identity = float(entries[5])
+                        # exclude self(>90% identity)
+                        if identity <= cutoff_identical:
+                            homo[pdbID] = 1
+                            homo_count[pdbID] = 0
+                    if brain_damage == 0.5:
+                        identity = float(entries[5])
+                        # check identity, add only self (>90% identity) to homo[]
+                        if identity > cutoff_identical:
+                            homo[pdbID] = 1
+                            homo_count[pdbID] = 0
+                    else:
                         homo[pdbID] = 1
                         homo_count[pdbID] = 0
-                if brain_damage == 0.5:
-                    identity = float(entries[5])
-                    # check identity, add only self (>90% identity) to homo[]
-                    if identity > cutoff_identical:
-                        homo[pdbID] = 1
-                        homo_count[pdbID] = 0
-                else:
-                    homo[pdbID] = 1
-                    homo_count[pdbID] = 0
 
-        # Part III, Write memories
-        count = {}
-        for i in range(1, iterations + 1):
-            count[str(i)] = 0  # count number of mem per fragments
-        fastFile = "./tmp.fasta"
-        Missing_pdb={}
-        Missing_count=0
+            # Part III, Write memories
+            count = {}
+            for i in range(1, iterations + 1):
+                count[str(i)] = 0  # count number of mem per fragments
+            fastFile = "./tmp.fasta"
+            Missing_pdb={}
+            Missing_count=0
 
-        with ThreadPoolExecutor(max_workers=12) as executor:
-            futures={}
-            for iter,line in enumerate(matchlines):
-                future = executor.submit(create_index_files,iter, line, N_mem, brain_damage,count, failed_pdb,homo, homo_count, weight, frag_lib_dir, pdb_dir, index_dir, pdb_seqres)
-                futures[future] = iter
-            results = [None] * len(futures)
-            for future in as_completed(futures):
-                i = futures[future]
-                results[i] = future.result()
-            
-        # Writing the results to the match file in the order of execution
-        with open('frags.mem', 'w') as LAMWmatch, open('log.mem', 'w') as log_match:
-            LAMWmatch.write('[Target]' + "\n")
-            LAMWmatch.write("query" + "\n\n" + '[Memories]' + "\n")
-            for result in results:
-                if result:
-                    out, out1, Missing_pdb_out, Missing_count_out = result
-                    LAMWmatch.write(out)
-                    log_match.write(out1)
-                    Missing_pdb.update(Missing_pdb_out)
-                    Missing_count+=Missing_count_out
+            with ThreadPoolExecutor(max_workers=12) as executor:
+                futures={}
+                for iter,line in enumerate(matchlines):
+                    future = executor.submit(create_index_files,iter, line, N_mem, brain_damage,count, failed_pdb,homo, homo_count, weight, frag_lib_dir, pdb_dir, index_dir, pdb_seqres)
+                    futures[future] = iter
+                results = [None] * len(futures)
+                for future in as_completed(futures):
+                    i = futures[future]
+                    results[i] = future.result()
+                
+            # Writing the results to the match file in the order of execution
 
-        print("HOMOLOGS:::")
-        total_homo_count = 0
-        for line in homoOut:
-            entries = line.split()
-            print("sseqid slen bitscore score evalue pident")
-            print(entries)
-            entry = entries[0]
-            if entry[:3] == "pdb":
-                # for example 'pdb|4V12|A'
-                pdbfull = str(entry[4:8]) + str(entry[9:])
-            else:
-                pdbfull = str(entry)
-            # pdbfull = entries[0]
-            pdbID = pdbfull[0:4].lower()
-            if brain_damage == 0 or brain_damage == 2:
-                total_homo_count += homo_count[pdbID]
-                print("Homolog count =", homo_count[pdbID])
+                for result in results:
+                    if result:
+                        out, out1, Missing_pdb_out, Missing_count_out = result
+                        LAMWmatch.write(out)
+                        log_match.write(out1)
+                        Missing_pdb.update(Missing_pdb_out)
+                        Missing_count+=Missing_count_out
 
-        if brain_damage == 0 or brain_damage == 2:
-            print("Total homolog count = ", total_homo_count, round(total_homo_count / iterations, 2))
-
-        print("Memories per position that are fewer than expected:")
-        for i in count:
-            if count[i] < N_mem:
-                print(i, count[i])
-
-        print("Number of blasted PDB: ", len(failed_pdb))
-        print("Number of failed downloaded PDB: ", sum(failed_pdb.values()))
-        print("Number of PDB with Missing atoms: ", len(Missing_pdb))
-        print("Discarded fragments with Missing atoms: ", Missing_count)
-        residue_base += len(record.seq)
-        for line in homoOut:
-            entries = line.split()
-            if len(entries):
+            print("HOMOLOGS:::")
+            total_homo_count = 0
+            for line in homoOut:
+                entries = line.split()
+                print("sseqid slen bitscore score evalue pident")
+                print(entries)
                 entry = entries[0]
                 if entry[:3] == "pdb":
                     # for example 'pdb|4V12|A'
@@ -583,7 +561,35 @@ def create_fragment_memories(database, fasta_file, memories_per_position, brain_
                     pdbfull = str(entry)
                 # pdbfull = entries[0]
                 pdbID = pdbfull[0:4].lower()
-                print(pdbID)
+                if brain_damage == 0 or brain_damage == 2:
+                    total_homo_count += homo_count[pdbID]
+                    print("Homolog count =", homo_count[pdbID])
+
+            if brain_damage == 0 or brain_damage == 2:
+                print("Total homolog count = ", total_homo_count, round(total_homo_count / iterations, 2))
+
+            print("Memories per position that are fewer than expected:")
+            for i in count:
+                if count[i] < N_mem:
+                    print(i, count[i])
+
+            print("Number of blasted PDB: ", len(failed_pdb))
+            print("Number of failed downloaded PDB: ", sum(failed_pdb.values()))
+            print("Number of PDB with Missing atoms: ", len(Missing_pdb))
+            print("Discarded fragments with Missing atoms: ", Missing_count)
+            residue_base += len(record.seq)
+            for line in homoOut:
+                entries = line.split()
+                if len(entries):
+                    entry = entries[0]
+                    if entry[:3] == "pdb":
+                        # for example 'pdb|4V12|A'
+                        pdbfull = str(entry[4:8]) + str(entry[9:])
+                    else:
+                        pdbfull = str(entry)
+                    # pdbfull = entries[0]
+                    pdbID = pdbfull[0:4].lower()
+                    print(pdbID)
 
     # loop1 close
 

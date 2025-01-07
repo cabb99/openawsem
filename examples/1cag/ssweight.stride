@@ -1,0 +1,111 @@
+REM  -------------------- Secondary structure summary -------------------  ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb A                                               ~~~~
+REM                                                                        ~~~~
+REM                .         .                                             ~~~~
+SEQ  1    PPGPPGPPGPPGPPAPPGPPGPPGPPGPP                        29          ~~~~
+STR                                                                        ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb B                                               ~~~~
+REM                                                                        ~~~~
+REM                .         .         .                                   ~~~~
+SEQ  1    PPGPPGPPGPPGPPAPPGPPGPPGPPGPPG                       30          ~~~~
+STR                                                                        ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb C                                               ~~~~
+REM                                                                        ~~~~
+REM                .         .                                             ~~~~
+SEQ  1    PPGPPGPPGPPGPPAPPGPPGPPGPPGPP                        29          ~~~~
+STR                                                                        ~~~~
+REM                                                                        ~~~~
+REM  --------------- Detailed secondary structure assignment-------------  ~~~~
+REM                                                                        ~~~~
+REM  |---Residue---|    |--Structure--|   |-Phi-|   |-Psi-|  |-Area-|      ~~~~
+ASG  PRO A    1    1    C          Coil    360.00    134.99     110.6      ~~~~
+ASG  PRO A    2    2    C          Coil    -57.38    140.27      80.4      ~~~~
+ASG  GLY A    3    3    C          Coil    -70.23    178.74       6.5      ~~~~
+ASG  PRO A    4    4    C          Coil    -55.72    160.14      64.8      ~~~~
+ASG  PRO A    5    5    C          Coil    -61.55    151.86      94.0      ~~~~
+ASG  GLY A    6    6    C          Coil    -72.67    165.29       4.2      ~~~~
+ASG  PRO A    7    7    C          Coil    -70.31    171.92      71.0      ~~~~
+ASG  PRO A    8    8    C          Coil    -59.39    146.24      89.4      ~~~~
+ASG  GLY A    9    9    C          Coil    -73.74    171.35       4.8      ~~~~
+ASG  PRO A   10   10    C          Coil    -72.35    163.94      68.9      ~~~~
+ASG  PRO A   11   11    C          Coil    -36.50    145.05      86.9      ~~~~
+ASG  GLY A   12   12    C          Coil    -72.50   -177.21       8.9      ~~~~
+ASG  PRO A   13   13    C          Coil    -61.45    144.73      65.7      ~~~~
+ASG  PRO A   14   14    C          Coil    -51.52    130.54     118.7      ~~~~
+ASG  ALA A   15   15    C          Coil    -60.65    130.88       8.0      ~~~~
+ASG  PRO A   16   16    C          Coil    -64.51    169.05      56.5      ~~~~
+ASG  PRO A   17   17    C          Coil    -71.21    158.04      80.6      ~~~~
+ASG  GLY A   18   18    C          Coil    -71.32    179.26       9.5      ~~~~
+ASG  PRO A   19   19    C          Coil    -70.51    157.87      67.4      ~~~~
+ASG  PRO A   20   20    C          Coil    -56.24    157.35      83.9      ~~~~
+ASG  GLY A   21   21    C          Coil    -71.81   -174.84       8.9      ~~~~
+ASG  PRO A   22   22    C          Coil    -85.46    170.12      65.8      ~~~~
+ASG  PRO A   23   23    C          Coil    -59.02    155.59      76.6      ~~~~
+ASG  GLY A   24   24    C          Coil    -77.31   -176.11       8.9      ~~~~
+ASG  PRO A   25   25    C          Coil    -82.07    153.89      72.7      ~~~~
+ASG  PRO A   26   26    C          Coil    -48.00    154.44      89.3      ~~~~
+ASG  GLY A   27   27    C          Coil    -83.27    173.60       9.7      ~~~~
+ASG  PRO A   28   28    C          Coil    -48.38    146.03      75.0      ~~~~
+ASG  PRO A   29   29    C          Coil    -58.52    360.00     167.7      ~~~~
+ASG  PRO B   31    1    C          Coil    360.00    133.65     156.5      ~~~~
+ASG  PRO B   32    2    C          Coil    -39.35    -80.02      67.9      ~~~~
+ASG  GLY B   33    3    C          Coil   -175.03   -151.34      32.3      ~~~~
+ASG  PRO B   34    4    C          Coil    -79.92    153.06      70.4      ~~~~
+ASG  PRO B   35    5    C          Coil    -63.88    146.84      86.4      ~~~~
+ASG  GLY B   36    6    C          Coil    -69.20    176.23       8.5      ~~~~
+ASG  PRO B   37    7    C          Coil    -66.83    159.61      79.2      ~~~~
+ASG  PRO B   38    8    C          Coil    -60.49    162.41      84.6      ~~~~
+ASG  GLY B   39    9    C          Coil    -73.28    175.56       8.4      ~~~~
+ASG  PRO B   40   10    C          Coil    -74.04    163.06      66.4      ~~~~
+ASG  PRO B   41   11    C          Coil    -60.80    141.15      86.6      ~~~~
+ASG  GLY B   42   12    C          Coil    -60.15   -177.68       7.7      ~~~~
+ASG  PRO B   43   13    C          Coil    -83.67    177.13      69.2      ~~~~
+ASG  PRO B   44   14    C          Coil    -74.94    161.15      79.6      ~~~~
+ASG  ALA B   45   15    C          Coil    -81.07    157.66      12.7      ~~~~
+ASG  PRO B   46   16    C          Coil    -59.99    179.26     107.3      ~~~~
+ASG  PRO B   47   17    C          Coil    -55.75    126.71     130.4      ~~~~
+ASG  GLY B   48   18    C          Coil    -62.00    158.56      14.2      ~~~~
+ASG  PRO B   49   19    C          Coil    -69.30    154.06      72.0      ~~~~
+ASG  PRO B   50   20    C          Coil    -69.79    160.76      80.2      ~~~~
+ASG  GLY B   51   21    C          Coil    -68.77   -175.24       8.9      ~~~~
+ASG  PRO B   52   22    C          Coil    -79.73    172.93      73.0      ~~~~
+ASG  PRO B   53   23    C          Coil    -62.24    153.11      87.2      ~~~~
+ASG  GLY B   54   24    C          Coil    -73.86    176.62       6.8      ~~~~
+ASG  PRO B   55   25    C          Coil    -75.67    177.53      76.0      ~~~~
+ASG  PRO B   56   26    C          Coil    -62.57    159.79      82.4      ~~~~
+ASG  GLY B   57   27    C          Coil    -74.62    172.31       6.9      ~~~~
+ASG  PRO B   58   28    C          Coil    -69.84    157.99      64.7      ~~~~
+ASG  PRO B   59   29    C          Coil    -55.39    151.65     103.6      ~~~~
+ASG  GLY B   60   30    C          Coil   -132.61    360.00      52.2      ~~~~
+ASG  PRO C   61    1    C          Coil    360.00    155.13     100.1      ~~~~
+ASG  PRO C   62    2    C          Coil    -61.20    165.32      79.6      ~~~~
+ASG  GLY C   63    3    C          Coil    -61.59    177.72       3.2      ~~~~
+ASG  PRO C   64    4    C          Coil    -75.21    159.69      52.7      ~~~~
+ASG  PRO C   65    5    C          Coil    -60.52    149.42      83.5      ~~~~
+ASG  GLY C   66    6    C          Coil    -68.41    172.34       6.2      ~~~~
+ASG  PRO C   67    7    C          Coil    -74.90    174.91      73.0      ~~~~
+ASG  PRO C   68    8    C          Coil    -63.12    144.01      86.0      ~~~~
+ASG  GLY C   69    9    C          Coil    -70.08   -179.89       6.5      ~~~~
+ASG  PRO C   70   10    C          Coil    -74.44    163.62      70.5      ~~~~
+ASG  PRO C   71   11    C          Coil    -56.80    146.26      90.5      ~~~~
+ASG  GLY C   72   12    C          Coil    -61.69    168.88       7.1      ~~~~
+ASG  PRO C   73   13    C          Coil    -73.35    165.37      65.3      ~~~~
+ASG  PRO C   74   14    C          Coil    -61.01    149.15     106.3      ~~~~
+ASG  ALA C   75   15    C          Coil   -103.51    168.96      15.6      ~~~~
+ASG  PRO C   76   16    C          Coil    -78.71    158.69      95.1      ~~~~
+ASG  PRO C   77   17    C          Coil    -61.14    152.55      86.3      ~~~~
+ASG  GLY C   78   18    C          Coil    -57.09   -179.27       9.6      ~~~~
+ASG  PRO C   79   19    C          Coil    -81.85    164.24      64.1      ~~~~
+ASG  PRO C   80   20    C          Coil    -56.86    151.95      88.1      ~~~~
+ASG  GLY C   81   21    C          Coil    -78.14    174.81       7.8      ~~~~
+ASG  PRO C   82   22    C          Coil    -66.81    154.43      73.6      ~~~~
+ASG  PRO C   83   23    C          Coil    -59.71    154.38      80.1      ~~~~
+ASG  GLY C   84   24    C          Coil    -80.88   -172.60       9.5      ~~~~
+ASG  PRO C   85   25    C          Coil    -68.17    166.55      74.2      ~~~~
+ASG  PRO C   86   26    C          Coil    -62.93    143.44      83.2      ~~~~
+ASG  GLY C   87   27    C          Coil    -62.30   -175.57       5.6      ~~~~
+ASG  PRO C   88   28    C          Coil    -77.85    139.31      68.3      ~~~~
+ASG  PRO C   89   29    C          Coil    -75.14    360.00     109.6      ~~~~

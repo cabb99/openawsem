@@ -429,7 +429,8 @@ def downloadPdb(pdb_list, membrane_protein=False, location="original_pdbs/"):
                 os.system(f"wget https://opm-assets.storage.googleapis.com/pdb/{pdbFile}")
                 os.system(f"mv {pdbFile} {fileLocation}")
             else:
-                pdbl = PDBList()
+                # pdbl = PDBList()
+                pdbl = PDBList(server='http://files.wwpdb.org')
                 name = pdbl.retrieve_pdb_file(pdb, pdir='.', file_format='pdb')
                 os.system(f"mv {name} {fileLocation}")
             os.system("rm -r obsolete")

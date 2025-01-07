@@ -136,8 +136,9 @@ def qc_value(oa, reference_pdb_file, min_seq_sep=10, a=0.2):
     qvalue.setForceGroup(3)
     return qvalue
 
-def partial_q_value(oa, reference_pdb_file, min_seq_sep=3, a=0.1, startResidueIndex=0, endResidueIndex=-1, residueIndexGroup=None, forceGroup=4):
-    print(f"Including partial q value computation, start residue index: {startResidueIndex}, end residue index: {endResidueIndex}, residueIndexGroup: {residueIndexGroup}")
+def partial_q_value(oa, reference_pdb_file, min_seq_sep=3, a=0.1, startResidueIndex=0, endResidueIndex=-1, residueIndexGroup=None, print_residues = False, forceGroup=4):
+    if print_residues:
+        print(f"Including partial q value computation, start residue index: {startResidueIndex}, end residue index: {endResidueIndex}, residueIndexGroup: {residueIndexGroup}")
     # create bonds
     # structure_interactions = oa.read_reference_structure_for_q_calculation(reference_pdb_file, reference_chain_name, min_seq_sep=min_seq_sep, max_seq_sep=max_seq_sep, contact_threshold=contact_threshold)
     structure_interactions = read_reference_structure_for_qc_calculation(oa, reference_pdb_file, min_seq_sep=min_seq_sep, a=a, startResidueIndex=startResidueIndex, endResidueIndex=endResidueIndex, residueIndexGroup=residueIndexGroup)
@@ -152,6 +153,7 @@ def partial_q_value(oa, reference_pdb_file, min_seq_sep=3, a=0.1, startResidueIn
     qvalue.addPerBondParameter("r_ijN")
     qvalue.addPerBondParameter("sigma_ij")
     for structure_interaction in structure_interactions:
+        #print(structure_interaction)
         qvalue.addBond(*structure_interaction)
     qvalue.setForceGroup(forceGroup)
     return qvalue
@@ -268,8 +270,32 @@ def rg_term(oa, convertToAngstrom=True):
     rg.setForceGroup(2)
     return rg
 
-def rg_bias_term(oa, k=1*kilocalorie_per_mole, rg0=0, atomGroup=-1, forceGroup=27):
+def partial_rg_term(oa, startResidueIndex=0, endResidueIndex=-1, residueIndexGroup=None, convertToAngstrom=True):
+    if endResidueIndex == -1:
+        endResidueIndex = oa.nres
+    if residueIndexGroup is None:
+        # residueIndexGroup is used for non-continuous residues that used for Q computation.
+        residueIndexGroup = range(startResidueIndex, endResidueIndex)
+    rg_square = CustomBondForce("1/normalization*r^2")
+    # rg = CustomBondForce("1")
+    rg_square.addGlobalParameter("normalization", len(residueIndexGroup)*len(residueIndexGroup))
+    for i in residueIndexGroup:
+        for j in residueIndexGroup:
+            if (j <= i):
+                continue
+            rg_square.addBond(oa.ca[i], oa.ca[j], [])
+    if convertToAngstrom:
+        unit = 10
+    else:
+        unit = 1
+    rg = CustomCVForce(f"{unit}*rg_square^0.5")
+    rg.addCollectiveVariable("rg_square", rg_square)
+    rg.setForceGroup(2)
+    return rg
+
+def rg_bias_term(oa, k=1*kilocalorie_per_mole, rg0=0*nanometer, atomGroup=-1, forceGroup=5):  #rg0 should be in nanometers.
     k = k.value_in_unit(kilojoule_per_mole)   # convert to kilojoule_per_mole, openMM default uses kilojoule_per_mole as energy.
+    rg0 = rg0.value_in_unit(nanometer)
     k_rg = oa.k_awsem * k
     nres, ca = oa.nres, oa.ca
     if atomGroup == -1:
@@ -291,14 +317,40 @@ def rg_bias_term(oa, k=1*kilocalorie_per_mole, rg0=0, atomGroup=-1, forceGroup=2
     rg.setForceGroup(forceGroup)
     return rg
 
-def cylindrical_rg_bias_term(oa, k=1*kilocalorie_per_mole, rg0=0, atomGroup=-1, forceGroup=27):
+# Implement Wu's Rg term into OpenAWSEM. See Wu, J. Phys. Chem. B, 2018, 11115-11125.
+def Wu_Rg_term(oa, rg0=0*angstrom, D=-0.5*kilocalorie_per_mole, alpha=0.001*kilocalorie_per_mole/angstrom**2, beta=0.001/angstrom**4, gamma=1.1, atomGroup=-1, forceGroup=5):
+    D = D.value_in_unit(kilojoule_per_mole)
+    rg0 = rg0.value_in_unit(angstrom)
+    alpha = alpha.value_in_unit(kilojoule_per_mole/angstrom**2)
+    beta = beta.value_in_unit(angstrom**-4)
+    nres, ca = oa.nres, oa.ca
+    if atomGroup == -1:
+        group = list(range(nres))
+    else:
+        group = atomGroup     # atomGroup = [0, 1, 10, 12]  means include residue 1, 2, 11, 13.
+    n = len(group)
+    normalization = n*n
+    rg_square = CustomBondForce(f"100/{normalization}*r^2")  #100 factor converts Rg from simulation described in nm to output in Angstroms. Rg^2 is in A^2.
+    for i in group:
+        for j in group:
+            if j <= i:
+                continue
+            rg_square.addBond(ca[i], ca[j], [])
+    print(f"({D}*{n}+{alpha}*(rg_square^0.5-{gamma}*{rg0})^2)/(1+{beta}*(rg_square^0.5-{rg0})^4)")
+    Vrg = CustomCVForce(f"({D}*{n}+{alpha}*(rg_square^0.5-{gamma}*{rg0})^2)/(1+{beta}*(rg_square^0.5-{rg0})^4)")
+    Vrg.addCollectiveVariable("rg_square", rg_square)
+    Vrg.setForceGroup(forceGroup)
+    return Vrg
+
+
+def cylindrical_rg_bias_term(oa, k=1*kilocalorie_per_mole, rg0=0, atomGroup=-1, forceGroup=5):
     k = k.value_in_unit(kilojoule_per_mole)   # convert to kilojoule_per_mole, openMM default uses kilojoule_per_mole as energy.
     k_rg = oa.k_awsem * k
     nres, ca = oa.nres, oa.ca
     if atomGroup == -1:
         group = list(range(nres))
     else:
-        group = atomGroup          # atomGroup = [0, 1, 10, 12]  means include residue 1, 2, 11, 13.
+        group = atomGroup          # atomGroup = [0, 1, 10, 12]  means include residue 1, 2, 11, 13. Since the atomGroup numbers do not map to the residue numbers tripping me up. Should update such that atomGroup numbers map propoerly to residue numbers. 
     n = len(group)
     normalization = n * n
     rg_square = CustomCompoundBondForce(2, f"1/{normalization}*((x1-x2)^2+(y1-y2)^2)")
