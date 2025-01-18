@@ -27,7 +27,25 @@ def analyze(args):
     setupFolderPath = "." if setupFolderPath == "" else setupFolderPath
     proteinName = pdb_id = os.path.basename(args.protein)
     chain=args.chain
-    pdb = f"{pdb_id}.pdb"
+    if pdb_id[-4:] == ".pdb":
+        pdb_id = pdb_id[:-4]
+        extension = "pdb"
+    elif pdb_id[-4:] == ".cif":
+        pdb_id = pdb_id[:-4]
+        extension = "cif"
+    else: # pdb_id is just a protein id, like 1r69
+        pdb_check = None
+        cif_check = None
+        if os.path.isfile(f"{pdb_id}.pdb"):
+            pdb_check = f"{pdb_id}.pdb"
+            extension = "pdb"
+        if os.path.isfile(f"{pdb_id}.cif"):
+            cif_check = f"{pdb_id}.cif"
+            extension = "cif"
+        if pdb_check and cif_check:
+            raise ValueError(f"Found both pdb and cif structure files {pdb_id}.pdb and {pdb_id}.cif. Fix your project directory!")
+        elif not pdb_check and not cif_check:
+            raise ValueError(f"Could not find {pdb_id}.pdb or {pdb_id}.cif")
 
     trajectoryPath = os.path.abspath(args.trajectory)
     if args.output is None:
@@ -49,7 +67,7 @@ def analyze(args):
 
 
     if chain == "-1":
-        chain = getAllChains("crystal_structure.pdb")
+        chain = getAllChains(f"crystal_structure.{extension}")
         print("Chains to simulate: ", chain)
 
     # for compute Q
@@ -58,11 +76,11 @@ def analyze(args):
         seq=read_fasta("crystal_structure.fasta")
         print(f"Using Seq:\n{seq}")
     else:
-        suffix = '-openmmawsem.pdb'
+        suffix = f'-openmmawsem.{extension}'
         if pdb_id[-len(suffix):] == suffix:
             input_pdb_filename = pdb_id
         else:
-            input_pdb_filename = f"{pdb_id}-openmmawsem.pdb"
+            input_pdb_filename = f"{pdb_id}-openmmawsem.{extension}"
         seq=None
 
     if args.fasta == "":
@@ -89,7 +107,7 @@ def analyze(args):
     # print(spec)
     forces = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(forces)
-    forces = forces.set_up_forces(oa, computeQ=True, submode=args.subMode, contactParameterLocation=parametersLocation)
+    forces = forces.set_up_forces(oa, computeQ=True, submode=args.subMode, contactParameterLocation=parametersLocation, extension=extension)
     oa.addForcesWithDefaultForceGroup(forces)
     # print(forces)
 

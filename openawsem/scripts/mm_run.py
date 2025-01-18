@@ -27,7 +27,7 @@ def run(args):
     # if mm_run.py is not at the same location of your setup folder.
     setupFolderPath = os.path.dirname(args.protein)
     setupFolderPath = "." if setupFolderPath == "" else setupFolderPath
-    proteinName = pdb_id = os.path.basename(args.protein)
+    proteinName = pdb_id = os.path.basename(args.protein) # I think basename chops off the .pdb or .cif extension, if provided
 
     pwd = os.getcwd()
     toPath = os.path.abspath(args.to)
@@ -36,14 +36,30 @@ def run(args):
     parametersLocation = "." if args.parameters is None else os.path.abspath(args.parameters)
     os.chdir(setupFolderPath)
 
-
-
-    # chain=args.chain
     chain=args.chain
-    pdb = f"{pdb_id}.pdb"
+
+    if pdb_id[-4:] == ".pdb":
+        pdb_id = pdb_id[:-4]
+        extension = "pdb"
+    elif pdb_id[-4:] == ".cif":
+        pdb_id = pdb_id[:-4]
+        extension = "cif"
+    else: # pdb_id is just a protein id, like 1r69
+        pdb_check = None
+        cif_check = None
+        if os.path.isfile(f"{pdb_id}.pdb"):
+            pdb_check = f"{pdb_id}.pdb"
+            extension = "pdb"
+        if os.path.isfile(f"{pdb_id}.cif"):
+            cif_check = f"{pdb_id}.cif"
+            extension = "cif"
+        if pdb_check and cif_check:
+            raise ValueError(f"Found both pdb and cif structure files {pdb_id}.pdb and {pdb_id}.cif. Fix your project directory!")
+        elif not pdb_check and not cif_check:
+            raise ValueError(f"Could not find {pdb_id}.pdb or {pdb_id}.cif")
 
     if chain == "-1":
-        chain = getAllChains("crystal_structure.pdb")
+        chain = getAllChains(f"crystal_structure.{extension}")
         print("Chains to simulate: ", chain)
 
 
@@ -52,7 +68,7 @@ def run(args):
         os.makedirs(toPath, exist_ok=True)
         os.system(f"cp {forceSetupFile} {toPath}/forces_setup.py")
         os.system(f"cp crystal_structure.fasta {toPath}/")
-        os.system(f"cp crystal_structure.pdb {toPath}/")
+        os.system(f"cp crystal_structure.{extension} {toPath}/")
         # os.system(f"cp {pdb} {args.to}/{pdb}")
         # pdb = os.path.join(args.to, pdb)
 
@@ -61,11 +77,11 @@ def run(args):
         seq=read_fasta("crystal_structure.fasta")
         print(f"Using Seq:\n{seq}")
     else:
-        suffix = '-openmmawsem.pdb'
+        suffix = f'-openmmawsem.{extension}'
         if pdb_id[-len(suffix):] == suffix:
             input_pdb_filename = pdb_id
         else:
-            input_pdb_filename = f"{pdb_id}-openmmawsem.pdb"
+            input_pdb_filename = f"{pdb_id}-openmmawsem.{extension}"
         seq=None
 
     if args.fasta == "":
@@ -88,7 +104,7 @@ def run(args):
 
 
     oa = OpenMMAWSEMSystem(input_pdb_filename, k_awsem=1.0, chains=chain, xml_filename=openawsem.xml, seqFromPdb=seq, includeLigands=args.includeLigands)  # k_awsem is an overall scaling factor that will affect the relevant temperature scales
-    myForces = forces.set_up_forces(oa, submode=args.subMode, contactParameterLocation=parametersLocation)
+    myForces = forces.set_up_forces(oa, submode=args.subMode, contactParameterLocation=parametersLocation, extension=extension)
     # print(forces)
     # oa.addForces(myForces)
 
@@ -105,7 +121,10 @@ def run(args):
         integrator = CustomIntegrator(0.001)
         simulation = Simulation(oa.pdb.topology, oa.system, integrator, platform)
         simulation.context.setPositions(oa.pdb.positions)  # set the initial positions of the atoms
-        simulation.reporters.append(PDBReporter(os.path.join(toPath, "native.pdb"), 1))
+        if extension == "pdb": # we might not be able to write cif file as pdb
+            simulation.reporters.append(PDBReporter(os.path.join(toPath, "native.pdb"), 1))
+        else:
+            logging.warning("Will not write pdb format trajectory for system loaded from cif file")
         simulation.reporters.append(DCDReporter(os.path.join(toPath, "movie.dcd"), 1))
         simulation.step(int(1))
         simulation.minimizeEnergy()  # first, minimize the energy to a local minimum to reduce any large forces that might be present
@@ -132,7 +151,10 @@ def run(args):
     print("num_frames", args.numFrames)
     simulation.reporters.append(StateDataReporter(sys.stdout, args.reportInterval, step=True, potentialEnergy=True, temperature=True))  # output energy and temperature during simulation
     simulation.reporters.append(StateDataReporter(os.path.join(toPath, "output.log"), args.reportInterval, step=True, potentialEnergy=True, temperature=True)) # output energy and temperature to a file
-    simulation.reporters.append(PDBReporter(os.path.join(toPath, "movie.pdb"), reportInterval=args.reportInterval))  # output PDBs of simulated structures
+    if extension == "pdb": # we might not be able to write cif file as pdb
+        simulation.reporters.append(PDBReporter(os.path.join(toPath, "movie.pdb"), reportInterval=args.reportInterval))  # output PDBs of simulated structures
+    else:
+        logging.warning("Will not write pdb format trajectory for system loaded from cif file")
     simulation.reporters.append(DCDReporter(os.path.join(toPath, "movie.dcd"), reportInterval=args.reportInterval, append=True))  # output PDBs of simulated structures
     # simulation.reporters.append(DCDReporter(os.path.join(args.to, "movie.dcd"), 1))  # output PDBs of simulated structures
     # simulation.reporters.append(PDBReporter(os.path.join(args.to, "movie.pdb"), 1))  # output PDBs of simulated structures

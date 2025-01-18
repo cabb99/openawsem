@@ -15,7 +15,7 @@ from Bio.PDB.PDBParser import PDBParser
 from Bio.PDB import PDBList
 from pdbfixer import PDBFixer
 try:
-    from openmm.app import PDBFile
+    from openmm.app import PDBFile, PDBxFile
 except ModuleNotFoundError:
     from simtk.openmm.app import PDBFile
 import logging
@@ -305,14 +305,43 @@ def compute_theta_for_each_helix(output="angles.csv", dumpName="../dump.lammpstr
 
 
 
-def check_and_correct_fragment_memory(fragFile="fragsLAMW.mem"):
+def check_and_correct_fragment_memory(fragFile="fragsLAMW.mem",fragmem_structure=None,openawsem_location='.'): # typically, called with fragFile='frags.mem'
+    if fragmem_structure:
+        import MDAnalysis as mda
+        from MDAnalysis.analysis import align
+        fragmem_structure_u = mda.Universe(fragmem_structure)
     with open("tmp.mem", "w") as out:
-        with open(fragFile, "r") as f:
-            for i in range(4):
+        with open(fragFile, "r") as f: 
+            for i in range(4): # this takes care of the target query header thing
                 line = next(f)
                 out.write(line)
             for line in f:
-                gro, _, i, n, _ = line.split()
+                # assuming that our fasta file for the sequence that we want to build and fold is the same length
+                # as the fragmem_structure, so that there is a one to one mapping of indices in the fragFile to our fragmem_structure
+                # fragFile start indices are 1-indexed, and so are residue numbers in gro files, so the mapping makes no change to the index
+                gro, our_protein_start, i, n, _ = line.split() # n is number of residues, i is start residue (determined by index in fragFile)
+                our_protein_start = int(our_protein_start)
+                n = int(n)
+                i = int(i)
+                chain = gro.split('.')[-2][-1].upper()
+                # it is okay to access the installation-wide data base here because we are still in the awsem_create stage before
+                # anything has been copied over to the project fraglib directory
+                ###########################################################################################################################
+                #pdb = f"{openawsem_location}/data/PDBs/{gro.split('/')[-1][:4].upper()}.pdb" # assuming CODECHAIN.gro filename format for gros
+                # now, our "gro" is not actually a gro, but a pdb or cif
+                pdb = f"{openawsem_location}/data/PDBs/{gro.split('/')[-1].upper()}" # assuming CODECHAIN.pdb or CODECHAIN.cif filename format
+                ###########################################################################################################################
+                assert os.path.isfile(pdb), f"PDB NOT FOUND: {pdb}"
+                # are there any differences between PDB and gro files? 
+                #
+                # pdb2gro.py can potentially modify residue numbers and atom numbers
+                # by skipping over some residues that do not satisfy is_regular_res, for example.
+                #     but is_regular_res just requires N, CA, and C, so even nonstandard amino acid residues should satisfy this
+                #     so the only danger is sticking in a cofactor with a residue number in the middle of the chain or something
+                #
+                # also, pdb2gro.py will just take the first altLoc listed in the file for atoms with multiple positions,
+                # except the case that Wei has documented and addressed below 
+                #
                 delete = False
                 # logging.info(f"{gro}, {i}, {n}")
                 # name = gro.split("/")[-1]
@@ -350,6 +379,52 @@ def check_and_correct_fragment_memory(fragFile="fragsLAMW.mem"):
                             delete = True
                         if test not in all_residues:
                             logging.warning(f"ATTENTION: {gro} {i} {n} missing: {test}")
+                            delete = True              
+                if fragmem_structure and not delete:
+                    print(f'PDB testing: {pdb}')
+                    # MDAnalysis resid follows numbering in topology file, with first:last being inclusive of both endpoints
+                    fragmem_structure_segment = fragmem_structure_u.select_atoms(f'resid {our_protein_start}:{our_protein_start+n-1} and name CA')
+                    to_delete = []
+                    current_structure_segment = mda.Universe(pdb).select_atoms(f'resid {i}:{i+n-1} and name CA and segid {chain}')
+                    for counter1 in range(len(current_structure_segment)):
+                        for counter2 in range(counter1+1, len(current_structure_segment)):
+                            if current_structure_segment[counter1].resid == current_structure_segment[counter2].resid:
+                                to_delete.append(counter2)
+                    current_structure_segment -= current_structure_segment[to_delete] # take only the first occurance of atoms with altLocs
+                    #current_structure_segment = mda.Universe(pdb).select_atoms(f'resid {i}:{i+n-1} and name CA and segid {chain}')
+                    # i don't think it's possible to do empty string or A for altLoc selection
+                    # if we get altLoc D or something like that it would be annoying, but should throw an error so it's not dangerous
+                    try:
+                        # align.alignto uses syntax (mobile, ref), so we're moving the structure containing the hit onto the appropriate region
+                        # of our target structure (the "fragmem" structure)
+                        old_rmsd, new_rmsd = align.alignto(current_structure_segment, fragmem_structure_segment,strict=True)
+                    except Exception as e:
+                        print(f"fragmem_structure_segment: {fragmem_structure_segment.atoms}")
+                        print(f"current_structure_segment: {current_structure_segment.atoms}")
+                        if "Reference and trajectory atom selections do not contain the same number of atoms" in str(e) and "and also not the same number of residues" in str(e):
+                            # in the future, we can put alternative error handling here if needed. 
+                            #print("PROBABLE MISSING RESIDUES IN FRAGMENT MEMORY. PRINTING MESSAGE BELOW AND WILL DELETE THIS MEMORY")
+                            raise
+                            #delete = True
+                        else:
+                            raise
+                    else: # try-except-else
+                        coords = fragmem_structure_segment.positions 
+                        distance_matrix = np.zeros([coords.shape[0],coords.shape[0]])
+                        native_distance_matrix = np.zeros([coords.shape[0],coords.shape[0]])
+                        for i in range(coords.shape[0]):
+                            for j in range(i+3,coords.shape[0]): # j > i+2
+                                distance_matrix[i,j] = np.linalg.norm(coords[i,:] - coords[j,:])
+                                native_distance_matrix[i,j] = np.linalg.norm(current_structure_segment.positions[i,:]-current_structure_segment.positions[j,:])
+                        diff_weights = native_distance_matrix - distance_matrix
+                        for i in range(diff_weights.shape[0]):
+                            for j in range(i+3,diff_weights.shape[1]): # j > i+2
+                                diff_weights[i,j] = np.exp(-(diff_weights[i,j]**2)/(2*((abs(i-j)**.15)**2)))
+                        q = (2/((diff_weights.shape[0]-2)*(diff_weights.shape[1]-3))) * np.sum(diff_weights)
+                        if '1R69' not in pdb and '1r69' not in pdb:
+                            assert 0 < new_rmsd < old_rmsd, f"new_rmsd: {new_rmsd}, old_rmsd: {old_rmsd}"
+                        #if new_rmsd > 2: # throw out fragmems that are structurally dissimilar to protein design target
+                        if q < 0.6:
                             delete = True
                 if not delete:
                     out.write(line)
@@ -436,7 +511,7 @@ def downloadPdb(pdb_list, membrane_protein=False, location="original_pdbs/"):
 
 
 
-def cleanPdb(pdb_list, chain=None, source=None, toFolder="cleaned_pdbs", formatName=False, 
+def cleanPdb(pdb_list, chain=None, source=None, toFolder="cleaned_pdbs", formatName=False,extension="pdb", 
                 removeDNAchains=True, verbose=False, removeTwoEndsMissingResidues=True, addMissingResidues=True, removeHeterogens=True, keepIds=False):
     os.system(f"mkdir -p {toFolder}")
     for pdb_id in pdb_list:
@@ -448,20 +523,21 @@ def cleanPdb(pdb_list, chain=None, source=None, toFolder="cleaned_pdbs", formatN
             pdb = f"{pdb_id.lower()[:4]}"
         else:
             pdb = pdb_id
-        pdbFile = pdb + ".pdb"
+        pdbFile = pdb + f".{extension}"
         if source is None:
             fromFile = os.path.join("original_pdbs", pdbFile)
-        elif source[-4:] == ".pdb":
+        elif source[-4:] == f".{extension}":
             fromFile = source
         else:
             fromFile = os.path.join(source, pdbFile)
 
         if verbose:
-            logging.info('Fixing PDB using PDBFixer')
+            logging.info('Fixing PDB or mmCIF/PDBx using PDBFixer')
             logging.info(os.getcwd())
             logging.info(fromFile)
             
         # clean pdb
+        # this class can take PDB or mmCIF/PDBx files
         fixer = PDBFixer(filename=fromFile)
 
         try:
@@ -522,7 +598,10 @@ def cleanPdb(pdb_list, chain=None, source=None, toFolder="cleaned_pdbs", formatN
             logging.warning("Unable to add missing atoms")
             continue
         fixer.addMissingHydrogens(7.0)
-        PDBFile.writeFile(fixer.topology, fixer.positions, open(os.path.join(toFolder, pdbFile), 'w'), keepIds=keepIds)
+        if extension=="pdb":
+            PDBFile.writeFile(fixer.topology, fixer.positions, open(os.path.join(toFolder, pdbFile), 'w'), keepIds=keepIds)
+        elif extension == "cif":
+            PDBxFile.writeFile(fixer.topology, fixer.positions, open(os.path.join(toFolder, pdbFile), 'w'), keepIds=keepIds)
 
 
 def getAllChains(pdbFile, removeDNAchains=True):
@@ -542,6 +621,9 @@ def getAllChains(pdbFile, removeDNAchains=True):
             logging.info(f"chain {c.id} is a DNA chain. it will be removed")
             continue
         if c.id in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789':
+            a += c.id
+        elif pdbFile[-4:] == ".cif": 
+            # if we're actually working with a cif file, we can handle other characters for chain names
             a += c.id
     # return ''.join(sorted(set(a.upper().replace(" ", ""))))
     return ''.join(sorted(set(a.replace(" ", ""))))
@@ -579,34 +661,29 @@ def get_seq_dic(fasta="../crystal_structure.fasta"):
     return seq_dic
 
 
-def seq_length_from_pdb(fileLocation, chains):
+def seq_length_from_pdb(top_for_seq_data,chains):#fileLocation, chains):
     data = []
-    parser = PDBParser()
-    structure = parser.get_structure('X', fileLocation)
-    for c in structure.get_chains():
-        chain_name = c.get_id()
+    for chain in top_for_seq_data.chains():
+        chain_name = chain.id
         if chain_name in chains:
-            residues = list(c.get_residues())
-            
-            #Get the regions of the pdb that are not missing residues           
+            residues = [residue for residue in chain.residues()]
+            #Get the regions of the pdb that are not missing residues  
             contiguous_regions = []
             current_region = [residues[0]]
             for i in range(1, len(residues)):
-                if residues[i].get_id()[1] == residues[i-1].get_id()[1] + 1:
+                if int(residues[i].id) == int(residues[i-1].id) + 1:
                     current_region.append(residues[i])
                 else:
                     contiguous_regions.append(current_region)
                     current_region = [residues[i]]
             contiguous_regions.append(current_region)
-            
             #Add a fragment for every contiguous sequence
             for sequence in contiguous_regions:
                 seq_len = len(sequence)
-                chain_start_residue_index = sequence[0].get_id()[1]  # Set to first residue's number
+                chain_start_residue_id = sequence[0].id  # Set to first residue's number
                 logging.info(f"Chain {chain_name}: Sequence length {seq_len}")
-                data.append((chain_name, chain_start_residue_index, seq_len))
+                data.append((chain_name, chain_start_residue_id, seq_len))
     return data
-
 
 def get_frame(file="movie.pdb", to="last_frame.pdb", frame=-1):
     # default is last frame.

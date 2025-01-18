@@ -1,0 +1,8 @@
+tests/data/./fraglib-1r69-fragment_memory_term/5odbB, i: 12, j: 17
+tests/data/./fraglib-1r69-fragment_memory_term/5odbB, i: 12, j: 18
+tests/data/./fraglib-1r69-fragment_memory_term/3sf6A, i: 6, j: 11
+tests/data/./fraglib-1r69-fragment_memory_term/3sf6A, i: 6, j: 12
+tests/data/./fraglib-1r69-fragment_memory_term/2vigA, i: 4, j: 9
+tests/data/./fraglib-1r69-fragment_memory_term/2vigA, i: 4, j: 10
+tests/data/./fraglib-1r69-fragment_memory_term/2ebaA, i: 4, j: 9
+tests/data/./fraglib-1r69-fragment_memory_term/2ebaA, i: 4, j: 10

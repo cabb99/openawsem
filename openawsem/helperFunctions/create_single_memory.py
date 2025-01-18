@@ -8,6 +8,7 @@ import logging
 __author__ = 'Wei Lu'
 
 def create_single_memory(pdb, chain):
+    raise NotImplementedError("haven't added support for openmm PDBFile/PDBxFile/Topology topology parsing")
     if not os.path.exists(pdb):
         logging.error("The pdb you specified is not exist")
         exit()
