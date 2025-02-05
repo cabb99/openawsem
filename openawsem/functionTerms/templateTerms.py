@@ -12,12 +12,38 @@ import pickle
 #from .fragmentMemoryTerms import *
 
 ###################################
-#### COPIED FROM openAWSEM.py
-def get_openmm_io_class(file_type):
+#### MODIFIED FOR templateTerms ONLY FOR BACKWARDS COMPATIBILITY WITH GRO FRAGMEMS
+def get_openmm_io_class(file_type,full_name=None):
     if file_type == "pdb":
         io_class = PDBFile
     elif file_type == "cif":
         io_class = PDBxFile
+    elif file_type == "gro":
+        # for backwards compatibility with fragment method
+        df = pd.read_csv(full_name, skiprows=2, sep="\s+", header=None, names=["Res_id", "Res", "Type", "i", "x", "y", "z"])
+        top = Topology()
+        chain = top.addChain() # we don't care about chain id if we're just reading things in for a fragment memory
+        pos = []
+        res_id_dict = {}
+        for index, row in df.iterrows():
+            if row['Res_id'] not in res_id_dict.keys():
+                residue = top.addResidue(row['Res'], chain, id=row['Res_id'])
+                res_id_dict.update({row['Res_id']:residue})
+            top.addAtom(row['Type'],element.Element.getBySymbol(row['Type'][0]),res_id_dict[row['Res_id']],id=row['i'])
+            pos.append([float(row['x']),float(row['y']),float(row['z'])])
+        pos = np.array(pos)
+        pos = Quantity(pos,unit=nanometer)
+        class DummyOpenmmReader:
+            def __init__(self,top,pos):
+                self.top = top
+                self.pos = pos
+            def getTopology(self):
+                return top
+            def getPositions(self,asNumpy=False):
+                return pos
+            def __call__(self,_):
+                return self
+        io_class = DummyOpenmmReader(top,pos)
     else:
         raise ValueError(f"Expected file_type 'pdb' or 'cif' but got file_type={file_type}") 
     return io_class
@@ -147,7 +173,7 @@ def fragment_memory_term(oa, k_fm=0.04184, frag_file_list_file="./frag.mem", npy
         target_start = frag_file_list["target_start"].iloc[frag_index]  # residue id
         fragment_start = frag_file_list["fragment_start"].iloc[frag_index]  # residue id
 
-        io_class = get_openmm_io_class(frag_name[-3:])
+        io_class = get_openmm_io_class(frag_name[-3:],full_name=frag_name)
         temp = io_class(frag_name)
         frag_top = temp.getTopology()
         frag_pos = temp.getPositions(asNumpy=True)
@@ -245,6 +271,7 @@ def fragment_memory_term(oa, k_fm=0.04184, frag_file_list_file="./frag.mem", npy
                     #    print(i,j)
                     #    print(frag_ca_cb_atom_types[i:i+4])
                 except Exception as e:
+                    print(data_dic)
                     print("\n\n\n\n\n\n\n\n\n\n\n\n\nTHAT EXCEPTION")
                     print(frag_index)
                     print(frag_name)
@@ -300,7 +327,7 @@ def fragment_memory_term(oa, k_fm=0.04184, frag_file_list_file="./frag.mem", npy
             assert(ij_sep > 0)
             frag_table[index] = raw_frag_table[i][ij_sep]
             interaction_pair_to_bond_index[(i,j)] = index
-        # np.save(frag_table_file, (frag_table, interaction_list, interaction_pair_to_bond_index))
+        np.save(frag_table_file, np.array((frag_table, interaction_list, interaction_pair_to_bond_index),dtype=object))
         #with open(frag_table_file, 'wb') as f:
         #    pickle.dump((frag_table, interaction_list, interaction_pair_to_bond_index), f)
         #with open(f'tests/data/new_raw_frag_table.npy','wb') as f:
@@ -309,7 +336,8 @@ def fragment_memory_term(oa, k_fm=0.04184, frag_file_list_file="./frag.mem", npy
         #    pickle.dump(raw_frag_table_count,f)
         print(f"All gro files information have been stored in the {frag_table_file}. \
             \nYou might want to set the 'UseSavedFragTable'=True to speed up the loading next time. \
-            \nBut be sure to remove the .npy file if you modify the .mem file. otherwise it will keep using the old frag memeory.")
+            \nBut we recommend removing the .npy file if you modify the .mem file \
+              so that you don't accidentally keep loading the old frag memeories in the .npy file.")
     # fm = CustomNonbondedForce(f"-k_fm*((v2-v1)*r+v1*r_2-v2*r_1)/(r_2-r_1); \
     #                             v1=frag_table(index_smaller, sep, r_index_1);\
     #                             v2=frag_table(index_smaller, sep, r_index_2);\

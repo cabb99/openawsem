@@ -958,9 +958,12 @@ def getSeqFromCleanPdb(input_pdb_filename, chains='A', writeFastaFile=False):
 
 def getSeq(input_pdb_filename, chains='A', writeFastaFile=False, fromPdb=False, fromFasta=None):
     if fromPdb:
-        cleaned_pdb_filename = input_pdb_filename.replace("openmmawsem.pdb", "cleaned.pdb")
-        pdb = input_pdb_filename.replace("-openmmawsem.pdb", "")
-        fastaFile = pdb + ".fasta"
+        # Path.replace() doesn't work like str.replace(), so we have to converts Paths to strs
+        # and then back again.
+        # Fortunately, Path.__str__() returns the appropriately formatted string for the OS
+        cleaned_pdb_filename = Path(str(input_pdb_filename).replace("openmmawsem.pdb", "cleaned.pdb"))
+        pdb = Path(str(input_pdb_filename).replace("-openmmawsem.pdb", "")) 
+        fastaFile = Path(f'{str(pdb)}.fasta') # returns a new Path 
 
         s = PDBParser().get_structure("X", cleaned_pdb_filename)
         m = s[0] # model 0

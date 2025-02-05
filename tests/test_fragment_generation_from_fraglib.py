@@ -3,6 +3,7 @@ import os
 import inspect
 from pathlib import Path
 import pickle
+import warnings
 
 data_path = Path('tests')/'data'
 
@@ -29,12 +30,8 @@ def definitely_correct(oa, k_fm=0.04184, frag_file_list_file="./frag.mem", npy_f
         if i in oa.cb:
             res_id = oa.resi[i]
             data_dic[("CB", 1+int(res_id))] = i
-    # print(oa.res_type)
-    # print(oa.resi)
-    # print(data_dic)
+
     frag_location_pre = os.path.dirname(frag_file_list_file)
-    # frag_file_list_file = frag_location_pre + "frags.mem"
-    # frag_table_file = frag_location_pre + "frag_table.npy"
     frag_table_file = npy_frag_table
 
     if os.path.isfile(frag_table_file) and UseSavedFragTable:
@@ -88,7 +85,7 @@ def definitely_correct(oa, k_fm=0.04184, frag_file_list_file="./frag.mem", npy_f
                 fj_x = f[j][4]
                 fj_y = f[j][5]
                 fj_z = f[j][6]
-                # print("----", fi_x, fi_y, fi_z, fj_x, fj_y, fj_z)
+
                 sigma_ij = fm_well_width*seq_sep**0.15
                 rm = ((fi_x-fj_x)**2 + (fi_y-fj_y)**2 + (fi_z-fj_z)**2)**0.5
 
@@ -96,12 +93,12 @@ def definitely_correct(oa, k_fm=0.04184, frag_file_list_file="./frag.mem", npy_f
 
                 raw_frag_table[correspond_target_i][i_j_sep] += w_m*gamma_ij*np.exp((r_array-rm)**2/(-2.0*sigma_ij**2))
                 raw_frag_table_count[correspond_target_i][i_j_sep] += 1
-                #print(correspond_target_i)
-                #if correspond_target_i in [95,98,113,116,131,134,148,151,154,157,324,327]:
-                #with open(f'{correspond_target_i}_frags.txt','a') as number_write_file:
-                #    number_write_file.write(f'{frag_name[:-4]}, i: {i}, j: {j}\n')
-                with open(f'{correspond_target_i}_rm.txt','a') as number_write_file:
-                    number_write_file.write(f'{rm}\n')
+                ###############################################################
+                # YOU CAN ADD THIS BACK TO THE TEST IF YOU WANT MORE INFORMATION
+                # TO FIGURE OUT ANY POTENTIAL ISSUES
+                #with open(f'{correspond_target_i}_rm.txt','a') as number_write_file:
+                #    number_write_file.write(f'{rm}\n')
+                ###############################################################
                 interaction_list.add((correspond_target_i, correspond_target_j))
     if (not os.path.isfile(frag_table_file)) or (not UseSavedFragTable):
         # Reduce memory usage.
@@ -114,34 +111,12 @@ def definitely_correct(oa, k_fm=0.04184, frag_file_list_file="./frag.mem", npy_f
             assert(ij_sep > 0)
             frag_table[index] = raw_frag_table[i][ij_sep]
             interaction_pair_to_bond_index[(i,j)] = index
-        # np.save(frag_table_file, (frag_table, interaction_list, interaction_pair_to_bond_index))
         with open(frag_table_file, 'wb') as f:
             pickle.dump((frag_table, interaction_list, interaction_pair_to_bond_index), f)
-        #with open(f'{data_path}/old_raw_frag_table.npy', 'wb') as f:
-        #    pickle.dump(raw_frag_table, f)
-        #with open(f'{data_path}/old_raw_frag_table_count.npy','wb') as f:
-        #    pickle.dump(raw_frag_table_count, f)
         print(f"All gro files information have been stored in the {frag_table_file}. \
             \nYou might want to set the 'UseSavedFragTable'=True to speed up the loading next time. \
-            \nBut be sure to remove the .npy file if you modify the .mem file. otherwise it will keep using the old frag memeory.")
-    # fm = CustomNonbondedForce(f"-k_fm*((v2-v1)*r+v1*r_2-v2*r_1)/(r_2-r_1); \
-    #                             v1=frag_table(index_smaller, sep, r_index_1);\
-    #                             v2=frag_table(index_smaller, sep, r_index_2);\
-    #                             index_smaller=min(index1,index2);\
-    #                             sep=abs(index1-index2);\
-    #                             r_1=frag_table_rmin+frag_table_dr*r_index_1;\
-    #                             r_2=frag_table_rmin+frag_table_dr*r_index_2;\
-    #                             r_index_2=r_index_1+1;\
-    #                             r_index_1=floor(r/frag_table_dr);")
-    # for i in range(oa.natoms):
-    #     fm.addParticle([i])
-
-    # # add interaction that are cutoff away
-    # # print(sorted(interaction_list))
-    # for (i, j) in interaction_list:
-    #     fm.addInteractionGroup([i], [j])
-    # # add per-particle parameters
-    # fm.addPerParticleParameter("index")
+            \nBut we recommend removing the .npy file if you modify the .mem file \
+              so that you don't accidentally keep loading the old frag memeories in the .npy file.")
 
     # for edge case, that r > frag_table_rmax
     max_r_index_1 = r_table_size - 2
@@ -171,7 +146,7 @@ def definitely_correct(oa, k_fm=0.04184, frag_file_list_file="./frag.mem", npy_f
     return fm
 
 def test_fragment_generation_from_fraglib():
-
+    warnings.filterwarnings('error', category=np.VisibleDeprecationWarning) 
     print("Configuring test and checking for necessary files")
 
     # set up list of test functions
@@ -179,11 +154,11 @@ def test_fragment_generation_from_fraglib():
     # eventually, we might have a structural alignment-based fragment memory function
     # in addition to the usual one
     test_funcs = ['fragment_memory_term']
-    test_funcs = {name:func for name,func in inspect.getmembers(openawsem.templateTerms) if name in test_funcs}
+    test_funcs = {name:func for name,func in inspect.getmembers(openawsem.functionTerms.templateTerms) if name in test_funcs}
 
     # set up list of test proteins
     # we should have at least 1r69 and one multi-chain protein
-    test_proteins = ['1r69',]#'4tlt']
+    test_proteins = ['1r69','4tlt']
     # just make sure we don't run into any issues with uppercase
     test_proteins = [test_protein.lower() for test_protein in test_proteins]
 
@@ -234,15 +209,16 @@ def test_fragment_generation_from_fraglib():
             assert os.path.isfile(f'{data_path}/{pdbid}-{name}.npy'), f"numpy file for correctly computed interaction list, {data_path}/{pdbid}-{name}.npy, not found"
 
     # now it's time to test our functions
-    print(f"testing functions {test_funcs} on proteins {test_proteins}")
+    print(f"testing functions {test_funcs.keys()} on proteins {test_proteins}")
 
     for pdbid in test_proteins:
+        print(f'testing {pdbid}')
         chain = helperFunctions.myFunctions.getAllChains(f'{data_path}/{pdbid}-openmmawsem.pdb')
         oa = OpenMMAWSEMSystem(f'{data_path}/{pdbid}-openmmawsem.pdb', k_awsem=1.0, chains=chain, xml_filename=openawsem.xml, seqFromPdb=None, includeLigands=False)  
         for name,func in test_funcs.items():
             # run function with testing switch, which returns extra logging information to full_interaction_info
             force_object, full_interaction_info = func(oa,k_fm=0.04184, 
-                frag_file_list_file=f'{data_path}/{protein}-{name}.mem',npy_frag_table=f'{data_path}/{pdbid}-{name}-test.npy',
+                frag_file_list_file=f'{data_path}/{pdbid}-{name}.mem',npy_frag_table=f'{data_path}/{pdbid}-{name}-test.npy',
                 min_seq_sep=3, max_seq_sep=9, fm_well_width=0.1, UseSavedFragTable=False, caOnly=False, forceGroup=23,testing=True)
             # load in frag table written during both normal (non-testing) and testing runs of the function
             fm_old = np.load(f'{data_path}/{pdbid}-{name}.npy',allow_pickle=True)
@@ -256,71 +232,91 @@ def test_fragment_generation_from_fraglib():
             interaction_pair_to_bond_index_old = fm_old[2]
             interaction_pair_to_bond_index_new = fm_new[2]
             assert interaction_pair_to_bond_index_old == interaction_pair_to_bond_index_new
-            # Next, to be sure that each atom has the same interactions coming from the same memories
-            # (something that is consistent with but not proven by our first two assertions),
-            # we work with the extra logging info in full_interaction_info
-            for key in full_interaction_info.keys(): # key is an integer corresponding to an atom index
-                if full_interaction_info[key] == '':
-                    continue # there won't be a -frags.txt file if the atom is not part of any memories
-                             # note that in full_interaction_info, we're actually just recording pairs
-                             # of each atom i and interacting atoms with a larger index, 
-                             # so the last 3 residues will never have any interactions listed here
-                             # (assuming min_seq_sep==3)
-                lines = ''
-                with open(f'{data_path}/{key}-{pdbid}-{name}-frags.txt','r') as f:
-                    for line in f:
-                        lines += line
-                assert full_interaction_info[key] == lines
+
+            #####################################################################################
+            # YOU CAN ADD THIS BACK TO THE TEST IF YOU WANT MORE INFORMATION
+            # TO FIGURE OUT ANY POTENTIAL ISSUES
+            #
+            ## Next, to be sure that each atom has the same interactions coming from the same memories
+            ## (something that is consistent with but not proven by our first two assertions),
+            ## we work with the extra logging info in full_interaction_info
+            #for key in full_interaction_info.keys(): # key is an integer corresponding to an atom index
+            #    if full_interaction_info[key] == '':
+            #        continue # there won't be a -frags.txt file if the atom is not part of any memories
+            #                 # note that in full_interaction_info, we're actually just recording pairs
+            #                 # of each atom i and interacting atoms with a larger index, 
+            #                 # so the last 3 residues will never have any interactions listed here
+            #                 # (assuming min_seq_sep==3)
+            #    lines = ''
+            #    with open(f'{data_path}/{key}-{pdbid}-{name}-frags.txt','r') as f:
+            #        for line in f:
+            #            lines += line
+            #    assert full_interaction_info[key] == lines, f'{full_interaction_info[key]}\n\n\n\n\n\n\n\n\n\n{lines}'
+            #####################################################################################
+
             # finally, we assert that the fragment tables are exactly the same
             frag_table_old = fm_old[0]
             frag_table_new = fm_new[0]
             difference = frag_table_new - frag_table_old
             assert (frag_table_old == frag_table_new).all()
-            '''
-            raw_frag_table_old = np.load(f'{data_path}/old_raw_frag_table.npy',allow_pickle=True)
-            raw_frag_table_new = np.load(f'{data_path}/new_raw_frag_table.npy',allow_pickle=True)
-            raw_frag_table_old_count = np.load(f'{data_path}/old_raw_frag_table_count.npy',allow_pickle=True)
-            raw_frag_table_new_count = np.load(f'{data_path}/new_raw_frag_table_count.npy',allow_pickle=True)
-            '''
-            #import pdb; pdb.set_trace()
-            #print(fm_old)
-            #print("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n")
-            #print(fm_new)
 
-            '''
-                        # remove log files so we can write new ones for this test
-            for filename in os.listdir(data_path):
-                if '_new.txt' == filename[-8:] and f'{protein}-name' in filename:
-                    os.remove(filename)
-            '''
-            '''
-            assert (raw_frag_table_old_count==raw_frag_table_new_count).all()
-            assert (raw_frag_table_old==raw_frag_table_new).all()
-            assert np.allclose(frag_table_old,frag_table_new)
-            assert (frag_table_old==frag_table_new).all()
-            '''
-            #interaction_list_old = fm_old[1]
-            #interaction_list_new = fm_new[1]
-            #difference1 = interaction_list_new - interaction_list_old
-            #difference2 = interaction_list_old - interaction_list_new
-            #with open('difference1.txt','w') as f:
-            #    for thing in sorted(difference1):
-            #        f.write(f'{thing}\n')
-            #with open('difference2.txt','w') as f:
-            #    for thing in sorted(difference2):
-            #        f.write(f'{thing}\n')
-            #with open('old.txt','w') as f:
-            #    for thing in sorted(interaction_list_old):
-            #        f.write(f'{thing}\n')
-            #with open('new.txt','w') as f:
-            #    for thing in sorted(interaction_list_new):
-            #        f.write(f'{thing}\n')
-            #exit()
-            #assert interaction_list_old == interaction_list_new
-            #interaction_pair_to_bond_index_old = fm_old[2]
-            #interaction_pair_to_bond_index_new = fm_new[2]
-            #assert interaction_pair_to_bond_index_old == interaction_pair_to_bond_index_new
 
 if __name__ == "__main__":
+    '''
+    To add a new protein to this test:
+    *    create a "ground truth" fragment library
+        >    in theory, you can use any commit that you trust, but the rest of these instructions
+             assume that you're using a commit to Carlos's GitHub around the end of 2024, such as
+             https://github.com/cabb99/openawsem/commit/2fad30b8a8e16d6bd827f21643d1ce1bcb00f485,
+             that writes gro files in a certain format
+    *    move the gro files to tests/data/fraglib-<pdbid>-<fragment_method>
+    *    add pdb or cif files generated by the new method to tests/data/fraglib-<pdbid>-<fragment_method> 
+        >    (<fragment_method> should be 'fragment_memory_term' unless you're trying to implement a new method)
+        >    this can be annoying for two reasons. First, there is randomness in the blast algorithm,
+        >    so that will probably stop you from getting an identical fragment library for the old and new runs.
+        >    second, the postprocessing of the blast hits during awsem_create works slightly differently 
+        >    for some of the more complicated structure files (alt locs, etc.) in the newer version of the code
+        >    so you might find that you need to eliminate certain files to make sure that the gro 
+        >    and pdb/cif reference fraglibs have the same proteins and coordinates.
+        >    of course, we want the gro and pdb/cif reference fraglibs to be as similar as possible, so if
+        >    you find a big difference, that suggests we will need to fix something in the awsem_create
+        >    part of the workflow (this test function only addresses the awsem_run part)
+    *    add your <pdbid>-openmmawsem.pdb file to tests/data/
+    *    set up your frags.mem files:
+        >    you should have two .mem files: one referencing your .gro-formatted memories
+             and one referencing your .pdb/.cif-formatted memories
+        >    edit both of them to contain only the memories that you want to test
+        >    copy the one with the pdb/cif memories to tests/data and rename it <pdbid>-<fragment_method>.mem
+        >    the one with the gro format memories is needed to generate the test but is not needed afterwards
+             put it in tests/data and give it a name to indicate that it's unimportant, like "foo.mem"
+    *    check the agreement between pdb and gro coordinates using tests/coord_from_pdb_gro.py
+        >    divides pdb coordinates by 10 to convert from angstroms (pdb unit) to nm (gro unit)
+        >    rounds off extra digit of precision given in pdb
+        >    raises ValueError if absolute difference between any converted and rounded pdb coorinate and 
+             its corresponding original gro coordinate is greater than 0.0010000001
+    *    write the exact coordinates from the pdb to the gro files using tests/pdb_to_gro_coords.py
+        >    fixes any rounding differences
+    *    Now, in this script, comment out the call to the test function in this main block
+    *    launch interactive python to define functions and data_path:
+    *        python -i tests/test_fragment_generation_from_fraglib.py
+    *    run the following commands:
+        >    pdbid = '1r69' # or whatever pdbid you used earlier
+        >    fragment_method = 'fragment_memory_term' # or whatever you used earlier
+        >    chain = helperFunctions.myFunctions.getAllChains(f'{data_path}/{pdbid}-openmmawsem.pdb')
+        >    oa = OpenMMAWSEMSystem(f'{data_path}/{pdbid}-openmmawsem.pdb', k_awsem=1.0, chains=chain, xml_filename=openawsem.xml, seqFromPdb=None, includeLigands=False) 
+        >    definitely_correct(oa,k_fm=0.04184,frag_file_list_file=f'{data_path}/foo.mem',npy_frag_table=f'{data_path}/{pdbid}-{fragment_method}.npy',min_seq_sep=3, max_seq_sep=9, fm_well_width=0.1, UseSavedFragTable=False,caOnly=False,forceGroup=23)
+        >    # calling definitely_correct writes all the reference files needed for the new test protein
+    *    add the pdbid of the protein to the list of proteins to test found in the test function in this script
+    *    add files to be tracked by git:
+        >    tests/data/<pdbid>-<fragment_method>.npy (the interaction list, interaction_pair_to_bond_index, and frag table generated the old way)
+        >    tests/data/<pdbid>-<fragment_method>.mem and tests/data/<fraglib>-<pdbid>-<fragment_method>/*.pdb (or cif) (required to run the new method)
+        >    OPTIONAL: files required to generate the test but not to run the test
+            -    tests/data/foo.mem (maybe give it a better name if you're going to include it,
+                 but it can easily be generated from the other .mem file by replacing 'pdb' or 'cif' with 'gro')
+            -    tests/data/<fraglib>-<pdbid>-<fragment_method>/*.gro
+            -    tests/data/coords_<fraglib>-<pdbid>-<fragment_method>/*
+    '''
     #pass
     test_fragment_generation_from_fraglib()
+
+
