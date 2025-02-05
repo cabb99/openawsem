@@ -8,7 +8,7 @@ except ModuleNotFoundError:
     from simtk.unit import angstrom
     from simtk.unit import kilocalorie_per_mole
 
-def set_up_forces(oa, computeQ=False, submode=-1, contactParameterLocation=".", membrane_center=-0*angstrom):
+def set_up_forces(oa, computeQ=False, submode=-1, contactParameterLocation=".", membrane_center=-0*angstrom, extension="pdb"):
     # apply forces
     forces = [
         basicTerms.con_term(oa),
@@ -35,8 +35,8 @@ def set_up_forces(oa, computeQ=False, submode=-1, contactParameterLocation=".", 
     ]
     if computeQ:
         forces.append(biasTerms.rg_term(oa))
-        forces.append(biasTerms.q_value(oa, "crystal_structure-cleaned.pdb", forceGroup=1))
-        forces.append(biasTerms.qc_value(oa, "crystal_structure-cleaned.pdb"))
+        forces.append(biasTerms.q_value(oa, f"crystal_structure-cleaned.{extension}", forceGroup=1))
+        forces.append(biasTerms.qc_value(oa, f"crystal_structure-cleaned.{extension}"))
         # forces.append(partial_q_value(oa, "crystal_structure-cleaned.pdb", residueIndexGroup=list(range(0, 15)), forceGroup=1))
     if submode == 0:
         additional_forces = [
