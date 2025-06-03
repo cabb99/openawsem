@@ -1,0 +1,10 @@
+[Target]
+query
+
+[Memories]
+2y3j_6chains_A.gro 1 1 6 20
+2y3j_6chains_B.gro 7 1 6 20
+2y3j_6chains_C.gro 13 1 6 20
+2y3j_6chains_D.gro 19 1 6 20
+2y3j_6chains_E.gro 25 25 6 20
+2y3j_6chains_F.gro 31 31 6 20

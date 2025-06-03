@@ -1,0 +1,3 @@
+/home/fc36/miniforge3/envs/openawsem310/bin/awsem_create 2lnq.pdb
+/home/fc36/miniforge3/envs/openawsem310/bin/awsem_create 2lnq.pdb
+/home/fc36/miniforge3/envs/openawsem310/bin/awsem_create 2lnq.pdb

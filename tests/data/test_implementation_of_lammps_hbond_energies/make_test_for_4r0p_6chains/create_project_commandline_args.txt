@@ -1,0 +1,1 @@
+/home/fc36/miniforge3/envs/openawsem310/bin/awsem_create 4r0p_6chains.pdb
