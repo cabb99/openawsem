@@ -153,17 +153,17 @@ def get_pap_gamma_P(donor_idx, acceptor_idx, chain_i, chain_j, gamma_P, ssweight
 
 def get_Lambda_2(i, j, p_par, p_anti, p_antihb, p_antinhb, p_parhb, a):
     Lambda = get_lambda_by_index(i, j, 1)
-    Lambda += -0.5*get_alpha_by_index(i, j, 0)*p_antihb[a[i], a[j]][0]
-    Lambda += -0.25*get_alpha_by_index(i, j, 1)*(p_antinhb[a[i+1], a[j-1]][0] + p_antinhb[a[i-1], a[j+1]][0])
-    Lambda += -get_alpha_by_index(i, j, 2)*(p_anti[a[i]] + p_anti[a[j]])
+    Lambda += 0.5*get_alpha_by_index(i, j, 0)*p_antihb[a[i], a[j]][0]
+    Lambda += 0.25*get_alpha_by_index(i, j, 1)*(p_antinhb[a[i+1], a[j-1]][0] + p_antinhb[a[i-1], a[j+1]][0])
+    Lambda += get_alpha_by_index(i, j, 2)*(p_anti[a[i]] + p_anti[a[j]])
     return Lambda
 
 def get_Lambda_3(i, j, p_par, p_anti, p_antihb, p_antinhb, p_parhb, a):
     Lambda = get_lambda_by_index(i, j, 2)
-    Lambda += -get_alpha_by_index(i, j, 3)*p_parhb[a[i+1], a[j]][0]
-    Lambda += -get_alpha_by_index(i, j, 4)*p_par[a[i+1]]
-    # Lambda += -get_alpha_by_index(i, j, 3)*p_par[a[j]]
-    Lambda += -get_alpha_by_index(i, j, 4)*p_par[a[j]] # Fix typo for https://github.com/npschafer/openawsem/issues/19
+    Lambda += get_alpha_by_index(i, j, 3)*p_parhb[a[i+1], a[j]][0]
+    Lambda += get_alpha_by_index(i, j, 4)*p_par[a[i+1]]
+    # Lambda += get_alpha_by_index(i, j, 3)*p_par[a[j]]
+    Lambda += get_alpha_by_index(i, j, 4)*p_par[a[j]] # Fix typo for https://github.com/npschafer/openawsem/issues/19
     return Lambda
 
 
