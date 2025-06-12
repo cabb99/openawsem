@@ -49,6 +49,43 @@ def isChainEdge(residueId, chain_starts, chain_ends, n=2):
     #         atEnd = True
     # return (atBegin or atEnd)
 
+def find_chain_index(res: int, chain_starts, chain_ends) -> int:
+    """
+    Find the index of the chain that contains the residue with index `res`.
+    """
+
+    chain_index = [int(chain_start<=res and res<=chain_end) for chain_start,chain_end in zip(chain_starts,chain_ends)]
+    assert sum(chain_index) == 1, f"res: {res}, chain_starts: {chain_starts}, chain_ends: {chain_ends}, list: {chain_index}"
+    return chain_index.index(1)
+
+def inSameChain(res_i: int,res_j: int,chain_starts,chain_ends) -> bool:
+    """
+    Return True if residues i and j lie in the same chain; False if exactly one of them 
+    is out of any chain. If both are out of chain bounds, raise an AssertionError.
+    
+    chain_starts and chain_ends are parallel lists of the same length, where each pair
+    (chain_starts[k], chain_ends[k]) defines the inclusive index range of chain k.
+    """
+
+    max_index = chain_ends[-1]
+    def is_out_of_bounds(res: int) -> bool:
+        return res < 0 or res > max_index
+
+    if is_out_of_bounds(res_i) and is_out_of_bounds(res_j):
+        raise AssertionError(
+            f"Both residues are outside chain boundaries: i={res_i}, j={res_j}, "
+            f"allowed range=[0…{max_index}]"
+        )
+    
+    if is_out_of_bounds(res_i) or is_out_of_bounds(res_j):
+        # If only one of the residues is out of bounds we'll treat them 
+        # as if they were in a different chain but it shouldn't really affect anything
+        return False
+    
+    # if we've made it this far, we know that both residues exist
+    return find_chain_index(res_i, chain_starts, chain_ends) == find_chain_index(res_j, chain_starts, chain_ends)
+
+
 def inWhichChain(residueId, chain_ends):
     chain_table = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
     for i, end_of_chain_resId in enumerate(chain_ends):
@@ -90,6 +127,21 @@ def read_beta_parameters(parametersLocation=None):
     return p_par, p_anti, p_antihb, p_antinhb, p_parhb
 
 
+def get_beta_class(i,j, chain_starts, chain_ends):
+    """
+    Return the beta class of the pair (i, j) based on the sequence separation and chain information.
+    """
+    same_chain = inSameChain(i,j,chain_starts,chain_ends)
+    # for intrachain pairs, proceed as before
+    if abs(j-i) >= 4 and abs(j-i) < 18:
+        return 1
+    elif abs(j-i) >= 18 and abs(j-i) < 45:
+        return 2
+    elif not same_chain or abs(j-i) >= 45:
+        return 3
+    else:
+        return 0
+
 def get_lambda_by_index(i, j, lambda_i):
 
 
@@ -119,6 +171,27 @@ def get_alpha_by_index(i, j, alpha_i):
         return alpha_table[alpha_i][2]
     else:
         return 0
+
+# def get_weight_and_p_by_index(i,j,chain_starts,chain_ends,alpha_label,p_array):
+#     # function to get the overall weight and probability parameter to multiply by alpha
+#     # i and j are of course our residue indices
+#     # alpha_label is an int from 1 to 5 depending on which alpha term we're getting the weight and probability for
+#     # p_array has two elements and we choose the correct one based on sequence separation
+#     weights = [0.5,0.25,1,1,1]
+#     weight = weights[alpha_label-1] # alpha_label is 1-indexed
+#     # determine whether residues are in the same chain
+#     same_chain = inSameChain(i,j,chain_starts,chain_ends)
+#     # treat residues from different chains as intrachain residues of the largest sequence separation class
+#     if same_chain==False:
+#         return weight*p_array[1] #class 4
+#     if abs(j-i) >= 4 and abs(j-i) < 18:
+#         return weight*p_array[0] #class 2
+#     elif abs(j-i) >= 18 and abs(j-i) < 45:
+#         return weight*p_array[1] #class 3
+#     elif abs(j-i) >= 45:
+#         return weight*p_array[1] #class 4
+#     else:
+#         return 0 
 
 def get_pap_gamma_APH(donor_idx, acceptor_idx, chain_i, chain_j, gamma_APH):
     # if chain_i == chain_j and abs(j-i) < 13 or abs(j-i) > 16:
@@ -151,19 +224,29 @@ def get_pap_gamma_P(donor_idx, acceptor_idx, chain_i, chain_j, gamma_P, ssweight
     else:
         return 0
 
-def get_Lambda_2(i, j, p_par, p_anti, p_antihb, p_antinhb, p_parhb, a):
+def get_Lambda_2(i, j, p_par, p_anti, p_antihb, p_antinhb, p_parhb, a, chain_starts, chain_ends):
+    beta_class = get_beta_class(i, j, chain_starts, chain_ends)
+    if beta_class >= 2:
+        layer=1
+    else:
+        layer=0
+
     Lambda = get_lambda_by_index(i, j, 1)
-    Lambda += -0.5*get_alpha_by_index(i, j, 0)*p_antihb[a[i], a[j]][0]
-    Lambda += -0.25*get_alpha_by_index(i, j, 1)*(p_antinhb[a[i+1], a[j-1]][0] + p_antinhb[a[i-1], a[j+1]][0])
-    Lambda += -get_alpha_by_index(i, j, 2)*(p_anti[a[i]] + p_anti[a[j]])
+    Lambda += 0.5*get_alpha_by_index(i, j, 0)*p_antihb[a[i], a[j]][layer]
+    Lambda += 0.25*get_alpha_by_index(i, j, 1)*(p_antinhb[a[i+1], a[j-1]][layer] + p_antinhb[a[i-1], a[j+1]][layer])
+    Lambda += get_alpha_by_index(i, j, 2)*(p_anti[a[i]] + p_anti[a[j]])*1 # weight of 1
     return Lambda
 
-def get_Lambda_3(i, j, p_par, p_anti, p_antihb, p_antinhb, p_parhb, a):
+def get_Lambda_3(i, j, p_par, p_anti, p_antihb, p_antinhb, p_parhb, a, chain_starts, chain_ends):
+    beta_class = get_beta_class(i, j, chain_starts, chain_ends)
+    if beta_class >= 2:
+        layer=1
+    else:
+        layer=0
     Lambda = get_lambda_by_index(i, j, 2)
-    Lambda += -get_alpha_by_index(i, j, 3)*p_parhb[a[i+1], a[j]][0]
-    Lambda += -get_alpha_by_index(i, j, 4)*p_par[a[i+1]]
-    # Lambda += -get_alpha_by_index(i, j, 3)*p_par[a[j]]
-    Lambda += -get_alpha_by_index(i, j, 4)*p_par[a[j]] # Fix typo for https://github.com/npschafer/openawsem/issues/19
+    Lambda += get_alpha_by_index(i, j, 3)*p_parhb[a[i+1], a[j]][layer]
+    Lambda += get_alpha_by_index(i, j, 4)*p_par[a[i+1]]*1 # weight of 1
+    Lambda += get_alpha_by_index(i, j, 4)*p_par[a[j]]*1 # weight of 1
     return Lambda
 
 
@@ -287,7 +370,7 @@ def beta_term_2(oa, k=0.5*kilocalories_per_mole, forceGroup=27):
             if isChainEdge(i, oa.chain_starts, oa.chain_ends, n=1) or \
                     isChainEdge(j, oa.chain_starts, oa.chain_ends, n=1):
                 continue
-            lambda_2[i][j] = get_Lambda_2(i, j, p_par, p_anti, p_antihb, p_antinhb, p_parhb, a)
+            lambda_2[i][j] = get_Lambda_2(i, j, p_par, p_anti, p_antihb, p_antinhb, p_parhb, a, oa.chain_starts, oa.chain_ends)
     theta_ij = f"exp(-(r_Oi_Nj-{r_ON})^2/(2*{sigma_NO}^2)-(r_Oi_Hj-{r_OH})^2/(2*{sigma_HO}^2))"
     theta_ji = f"exp(-(r_Oj_Ni-{r_ON})^2/(2*{sigma_NO}^2)-(r_Oj_Hi-{r_OH})^2/(2*{sigma_HO}^2))"
     beta_string_2 = f"-{k_beta}*lambda_2(res_i,res_j)*theta_ij*theta_ji;\
@@ -347,7 +430,7 @@ def beta_term_3(oa, k=0.5*kilocalories_per_mole, forceGroup=27):
             if isChainEdge(i, oa.chain_starts, oa.chain_ends, n=1) or \
                     isChainEdge(j, oa.chain_starts, oa.chain_ends, n=1):
                 continue
-            lambda_3[i][j] = get_Lambda_3(i, j, p_par, p_anti, p_antihb, p_antinhb, p_parhb, a)
+            lambda_3[i][j] = get_Lambda_3(i, j, p_par, p_anti, p_antihb, p_antinhb, p_parhb, a, oa.chain_starts, oa.chain_ends)
 
     theta_ij = f"exp(-(r_Oi_Nj-{r_ON})^2/(2*{sigma_NO}^2)-(r_Oi_Hj-{r_OH})^2/(2*{sigma_HO}^2))"
     theta_jip2 = f"exp(-(r_Oj_Nip2-{r_ON})^2/(2*{sigma_NO}^2)-(r_Oj_Hip2-{r_OH})^2/(2*{sigma_HO}^2))"
