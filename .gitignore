@@ -1,3 +1,6 @@
+tests/data/test_implementation_of_lammps_hbond_energies/lammps_setup_scripts/VectorAlgebra.pyc
+.gitignore
+
 # Windows image file caches
 Thumbs.db
 ehthumbs.db
