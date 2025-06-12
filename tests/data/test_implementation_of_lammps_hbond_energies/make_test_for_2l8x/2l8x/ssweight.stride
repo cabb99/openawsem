@@ -1,0 +1,68 @@
+REM  -------------------- Secondary structure summary -------------------  ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb A                                               ~~~~
+REM                                                                        ~~~~
+REM                .         .                                             ~~~~
+SEQ  1    RWCVYAYVRIRGVLVRYRRCW                                21          ~~~~
+STR         EEEEEEEETTEEEEEEEE                                             ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb B                                               ~~~~
+REM                                                                        ~~~~
+REM                .         .                                             ~~~~
+SEQ  1    RWCVYAYVRIRGVLVRYRRCW                                21          ~~~~
+STR        EEEEEEEEETTEEEEEEEE                                             ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+LOC  Strand       CYS     3 A      ILE     10 A                            ~~~~
+LOC  Strand       VAL    13 A      CYS     20 A                            ~~~~
+LOC  Strand       TRP    32 B      ILE     40 B                            ~~~~
+LOC  Strand       VAL    43 B      CYS     50 B                            ~~~~
+LOC  TurnIV       ILE    10 A      VAL     13 A                            ~~~~
+LOC  TurnIV       ILE    40 B      VAL     43 B                            ~~~~
+REM                                                                        ~~~~
+REM  --------------- Detailed secondary structure assignment-------------  ~~~~
+REM                                                                        ~~~~
+REM  |---Residue---|    |--Structure--|   |-Phi-|   |-Psi-|  |-Area-|      ~~~~
+ASG  ARG A    1    1    C          Coil    360.00    154.60     235.4      ~~~~
+ASG  TRP A    2    2    C          Coil   -108.30    127.24     121.9      ~~~~
+ASG  CYS A    3    3    E        Strand   -134.15    175.92      16.4      ~~~~
+ASG  VAL A    4    4    E        Strand   -149.95    130.54      16.6      ~~~~
+ASG  TYR A    5    5    E        Strand   -124.19    127.60     111.3      ~~~~
+ASG  ALA A    6    6    E        Strand   -127.00    149.32      16.3      ~~~~
+ASG  TYR A    7    7    E        Strand   -148.89    116.18      68.5      ~~~~
+ASG  VAL A    8    8    E        Strand   -118.19    133.87      45.9      ~~~~
+ASG  ARG A    9    9    E        Strand   -147.77    118.32      98.2      ~~~~
+ASG  ILE A   10   10    E        Strand   -150.01    153.49      41.4      ~~~~
+ASG  ARG A   11   11    T          Turn     59.51    -82.90     246.4      ~~~~
+ASG  GLY A   12   12    T          Turn   -161.66     26.43      73.2      ~~~~
+ASG  VAL A   13   13    E        Strand   -122.40    154.59      95.4      ~~~~
+ASG  LEU A   14   14    E        Strand   -139.33    111.89      79.3      ~~~~
+ASG  VAL A   15   15    E        Strand   -113.40     94.18      84.3      ~~~~
+ASG  ARG A   16   16    E        Strand    -90.00    102.70     129.4      ~~~~
+ASG  TYR A   17   17    E        Strand    -89.81    157.17     161.3      ~~~~
+ASG  ARG A   18   18    E        Strand   -152.14    172.59     164.3      ~~~~
+ASG  ARG A   19   19    E        Strand    179.57    152.73     111.9      ~~~~
+ASG  CYS A   20   20    E        Strand   -150.64    157.10      68.4      ~~~~
+ASG  TRP A   21   21    C          Coil   -112.63    360.00     180.8      ~~~~
+ASG  ARG B   31    1    C          Coil    360.00    159.87     137.1      ~~~~
+ASG  TRP B   32    2    E        Strand   -138.73    104.91      99.6      ~~~~
+ASG  CYS B   33    3    E        Strand    -88.92    152.41      40.6      ~~~~
+ASG  VAL B   34    4    E        Strand   -150.46    121.87      29.7      ~~~~
+ASG  TYR B   35    5    E        Strand   -145.23    115.67     135.3      ~~~~
+ASG  ALA B   36    6    E        Strand   -133.87    162.14      22.3      ~~~~
+ASG  TYR B   37    7    E        Strand   -148.87     80.19      80.6      ~~~~
+ASG  VAL B   38    8    E        Strand    -99.07    140.31      33.9      ~~~~
+ASG  ARG B   39    9    E        Strand   -142.54    135.69     128.2      ~~~~
+ASG  ILE B   40   10    E        Strand   -150.12    159.07      85.0      ~~~~
+ASG  ARG B   41   11    T          Turn     54.38    -83.95     243.0      ~~~~
+ASG  GLY B   42   12    T          Turn   -163.41     27.21      59.5      ~~~~
+ASG  VAL B   43   13    E        Strand   -132.28    124.90     100.6      ~~~~
+ASG  LEU B   44   14    E        Strand   -100.36    116.44      56.1      ~~~~
+ASG  VAL B   45   15    E        Strand    -99.66    102.55     100.8      ~~~~
+ASG  ARG B   46   16    E        Strand   -105.42    147.60     170.1      ~~~~
+ASG  TYR B   47   17    E        Strand   -139.79    135.75     122.7      ~~~~
+ASG  ARG B   48   18    E        Strand   -151.00    123.03     181.8      ~~~~
+ASG  ARG B   49   19    E        Strand   -178.13    149.98     110.4      ~~~~
+ASG  CYS B   50   20    E        Strand   -139.17    136.32      62.1      ~~~~
+ASG  TRP B   51   21    C          Coil    -90.44    360.00     164.1      ~~~~

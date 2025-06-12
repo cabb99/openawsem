@@ -1,0 +1,77 @@
+REM  -------------------- Secondary structure summary -------------------  ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb A                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    IFQINS                                                6          ~~~~
+STR                                                                        ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb B                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    IFQINS                                                6          ~~~~
+STR                                                                        ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb C                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    IFQINS                                                6          ~~~~
+STR                                                                        ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb D                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    IFQINS                                                6          ~~~~
+STR                                                                        ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb E                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    IFQINS                                                6          ~~~~
+STR                                                                        ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb F                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    IFQINS                                                6          ~~~~
+STR                                                                        ~~~~
+REM                                                                        ~~~~
+REM  --------------- Detailed secondary structure assignment-------------  ~~~~
+REM                                                                        ~~~~
+REM  |---Residue---|    |--Structure--|   |-Phi-|   |-Psi-|  |-Area-|      ~~~~
+ASG  ILE A    1    1    C          Coil    360.00    113.82     144.1      ~~~~
+ASG  PHE A    2    2    C          Coil   -132.56    115.12      84.4      ~~~~
+ASG  GLN A    3    3    C          Coil   -133.05    127.41     100.6      ~~~~
+ASG  ILE A    4    4    C          Coil   -134.80    131.57      42.8      ~~~~
+ASG  ASN A    5    5    C          Coil   -115.02    121.56     113.3      ~~~~
+ASG  SER A    6    6    C          Coil   -140.41    360.00     121.8      ~~~~
+ASG  ILE B    1    1    C          Coil    360.00    113.82     102.0      ~~~~
+ASG  PHE B    2    2    C          Coil   -132.56    115.12      20.8      ~~~~
+ASG  GLN B    3    3    C          Coil   -133.05    127.41      61.7      ~~~~
+ASG  ILE B    4    4    C          Coil   -134.80    131.57       2.3      ~~~~
+ASG  ASN B    5    5    C          Coil   -115.02    121.56      73.1      ~~~~
+ASG  SER B    6    6    C          Coil   -140.41    360.00      71.3      ~~~~
+ASG  ILE C   13    1    C          Coil    360.00    113.82     163.0      ~~~~
+ASG  PHE C   14    2    C          Coil   -132.56    115.12      82.9      ~~~~
+ASG  GLN C   15    3    C          Coil   -133.05    127.41     133.9      ~~~~
+ASG  ILE C   16    4    C          Coil   -134.80    131.57      52.2      ~~~~
+ASG  ASN C   17    5    C          Coil   -115.02    121.56     135.9      ~~~~
+ASG  SER C   18    6    C          Coil   -140.41    360.00     104.3      ~~~~
+ASG  ILE D   19    1    C          Coil    360.00    113.83     144.1      ~~~~
+ASG  PHE D   20    2    C          Coil   -132.57    115.09     104.2      ~~~~
+ASG  GLN D   21    3    C          Coil   -133.05    127.42     100.6      ~~~~
+ASG  ILE D   22    4    C          Coil   -134.83    131.58      60.2      ~~~~
+ASG  ASN D   23    5    C          Coil   -115.02    121.56     113.3      ~~~~
+ASG  SER D   24    6    C          Coil   -140.41    360.00     144.3      ~~~~
+ASG  ILE E   25    1    C          Coil    360.00    113.78     102.0      ~~~~
+ASG  PHE E   26    2    C          Coil   -132.56    115.12      20.8      ~~~~
+ASG  GLN E   27    3    C          Coil   -133.05    127.41      61.7      ~~~~
+ASG  ILE E   28    4    C          Coil   -134.80    131.57       2.3      ~~~~
+ASG  ASN E   29    5    C          Coil   -115.02    121.56      73.1      ~~~~
+ASG  SER E   30    6    C          Coil   -140.41    360.00      71.3      ~~~~
+ASG  ILE F   31    1    C          Coil    360.00    113.82     163.0      ~~~~
+ASG  PHE F   32    2    C          Coil   -132.56    115.12      50.0      ~~~~
+ASG  GLN F   33    3    C          Coil   -133.05    127.41     133.8      ~~~~
+ASG  ILE F   34    4    C          Coil   -134.80    131.57      23.9      ~~~~
+ASG  ASN F   35    5    C          Coil   -115.02    121.56     135.9      ~~~~
+ASG  SER F   36    6    C          Coil   -140.41    360.00      97.7      ~~~~

@@ -1,0 +1,82 @@
+REM  -------------------- Secondary structure summary -------------------  ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb A                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    GYMLGS                                                6          ~~~~
+STR                                                                        ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb B                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    GYMLGS                                                6          ~~~~
+STR                                                                        ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb C                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    GYMLGS                                                6          ~~~~
+STR        EEEE                                                            ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb D                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    GYMLGS                                                6          ~~~~
+STR                                                                        ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb E                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    GYMLGS                                                6          ~~~~
+STR                                                                        ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb F                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    GYMLGS                                                6          ~~~~
+STR        EEEE                                                            ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+LOC  Strand       TYR     2 C      GLY      5 C                            ~~~~
+LOC  Strand       TYR    32 F      GLY     35 F                            ~~~~
+REM                                                                        ~~~~
+REM  --------------- Detailed secondary structure assignment-------------  ~~~~
+REM                                                                        ~~~~
+REM  |---Residue---|    |--Structure--|   |-Phi-|   |-Psi-|  |-Area-|      ~~~~
+ASG  GLY A    1    1    C          Coil    360.00    174.72      38.5      ~~~~
+ASG  TYR A    2    2    C          Coil   -145.98    152.01     140.7      ~~~~
+ASG  MET A    3    3    C          Coil   -144.15    141.05       4.5      ~~~~
+ASG  LEU A    4    4    C          Coil   -135.44    128.94      55.2      ~~~~
+ASG  GLY A    5    5    C          Coil   -132.42    142.07       3.9      ~~~~
+ASG  SER A    6    6    C          Coil   -148.61    360.00     131.9      ~~~~
+ASG  GLY B    1    1    C          Coil    360.00    174.73      95.1      ~~~~
+ASG  TYR B    2    2    C          Coil   -145.98    151.97      26.6      ~~~~
+ASG  MET B    3    3    C          Coil   -144.14    141.08     165.5      ~~~~
+ASG  LEU B    4    4    C          Coil   -135.45    128.97      49.0      ~~~~
+ASG  GLY B    5    5    C          Coil   -132.43    142.11      67.4      ~~~~
+ASG  SER B    6    6    C          Coil   -148.63    360.00     125.2      ~~~~
+ASG  GLY C    1    1    C          Coil    360.00    174.72      75.1      ~~~~
+ASG  TYR C    2    2    E        Strand   -145.98    152.01     119.4      ~~~~
+ASG  MET C    3    3    E        Strand   -144.15    141.05     104.5      ~~~~
+ASG  LEU C    4    4    E        Strand   -135.41    128.94      50.3      ~~~~
+ASG  GLY C    5    5    E        Strand   -132.42    142.07      11.8      ~~~~
+ASG  SER C    6    6    C          Coil   -148.61    360.00     157.5      ~~~~
+ASG  GLY D    1    1    C          Coil    360.00    159.96      72.5      ~~~~
+ASG  TYR D    2    2    C          Coil   -152.48    151.89     134.3      ~~~~
+ASG  MET D    3    3    C          Coil   -145.79    134.70     114.9      ~~~~
+ASG  LEU D    4    4    C          Coil   -151.19    163.88      44.6      ~~~~
+ASG  GLY D    5    5    C          Coil   -163.95    153.91      11.3      ~~~~
+ASG  SER D    6    6    C          Coil   -140.60    360.00     122.8      ~~~~
+ASG  GLY E   25    1    C          Coil    360.00    159.96     108.6      ~~~~
+ASG  TYR E   26    2    C          Coil   -152.48    151.89      51.7      ~~~~
+ASG  MET E   27    3    C          Coil   -145.79    134.70     155.9      ~~~~
+ASG  LEU E   28    4    C          Coil   -151.19    163.88      52.2      ~~~~
+ASG  GLY E   29    5    C          Coil   -163.95    153.91      56.9      ~~~~
+ASG  SER E   30    6    C          Coil   -140.60    360.00     114.8      ~~~~
+ASG  GLY F   31    1    C          Coil    360.00    159.96      53.6      ~~~~
+ASG  TYR F   32    2    E        Strand   -152.48    151.89     124.4      ~~~~
+ASG  MET F   33    3    E        Strand   -145.79    134.70       8.0      ~~~~
+ASG  LEU F   34    4    E        Strand   -151.19    163.88      49.1      ~~~~
+ASG  GLY F   35    5    E        Strand   -163.95    153.91       9.2      ~~~~
+ASG  SER F   36    6    C          Coil   -140.60    360.00     144.6      ~~~~

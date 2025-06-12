@@ -1,0 +1,97 @@
+LAMMPS (29 Aug 2024 - Update 1)
+Reading data file ...
+  orthogonal box = (-200 -200 -200) to (200 200 200)
+  1 by 1 by 1 MPI processor grid
+  reading atoms ...
+  108 atoms
+  scanning bonds ...
+  3 = max bonds/atom
+  orthogonal box = (-200.04 -200.04 -200.04) to (200.04 200.04 200.04)
+  1 by 1 by 1 MPI processor grid
+  reading bonds ...
+  132 bonds
+Finding 1-2 1-3 1-4 neighbors ...
+  special bond factors lj:    0        1        1       
+  special bond factors coul:  0        1        1       
+     5 = max # of 1-2 neighbors
+     5 = max # of special neighbors
+  special bonds CPU = 0.000 seconds
+  read_data CPU = 0.013 seconds
+36 atoms in group alpha_carbons
+36 atoms in group beta_atoms
+36 atoms in group oxygens
+Chain flag on
+Chi flag on
+Rama flag on
+Rama_P flag on
+SSWeight flag on
+ABC flag on
+Dssp_Hdrgn flag on
+P_AP flag on
+Water flag on
+Burial flag on
+Helix flag on
+
+Fix backbone Pair List cutoff 15.0000
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Your simulation uses code contributions which should be cited:
+- Type Label Framework: https://doi.org/10.1021/acs.jpcb.3c08419
+The log file lists these citations in BibTeX format.
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Generated 0 of 10 mixed pair_coeff terms from geometric mixing rule
+Neighbor list info ...
+  update: every = 1 steps, delay = 5 steps, check = yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 14.5
+  ghost atom cutoff = 25
+  binsize = 7.25, bins = 2 3 4
+  2 neighbor lists, perpetual/occasional/extra = 2 0 0
+  (1) pair vexcluded, perpetual
+      attributes: half, newton on
+      pair build: half/bin/newton
+      stencil: half/bin/3d
+      bin: standard
+  (2) fix backbone, perpetual
+      attributes: half, newton on, cut 25
+      pair build: half/bin/newton
+      stencil: half/bin/3d
+      bin: standard
+Setting up Verlet run ...
+  Unit style    : real
+  Current step  : 0
+  Time step     : 2
+Per MPI rank memory allocation (min/avg/max) = 7.18 | 7.18 | 7.18 Mbytes
+   Step          Temp          E_pair         E_mol          TotEng         Press          Volume    
+         0   300            10.51521       535.97391      642.17313     -36718.684      5741.4029    
+Loop time of 9.08e-07 on 1 procs for 0 steps with 108 atoms
+
+110.1% CPU use with 1 MPI tasks x no OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0          | 0          | 0          |   0.0 |  0.00
+Bond    | 0          | 0          | 0          |   0.0 |  0.00
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 0          | 0          | 0          |   0.0 |  0.00
+Output  | 0          | 0          | 0          |   0.0 |  0.00
+Modify  | 0          | 0          | 0          |   0.0 |  0.00
+Other   |            | 9.08e-07   |            |       |100.00
+
+Nlocal:            108 ave         108 max         108 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:              0 ave           0 max           0 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:           3246 ave        3246 max        3246 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 3246
+Ave neighs/atom = 30.055556
+Ave special neighs/atom = 2.4444444
+Neighbor list builds = 0
+Dangerous builds = 0
+Total wall time: 0:00:00

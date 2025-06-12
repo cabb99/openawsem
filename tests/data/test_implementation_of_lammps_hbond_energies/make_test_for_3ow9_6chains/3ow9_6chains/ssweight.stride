@@ -1,0 +1,84 @@
+REM  -------------------- Secondary structure summary -------------------  ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb A                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    KLVFFA                                                6          ~~~~
+STR        EEE                                                             ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb B                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    KLVFFA                                                6          ~~~~
+STR        EE B                                                            ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb C                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    KLVFFA                                                6          ~~~~
+STR                                                                        ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb D                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    KLVFFA                                                6          ~~~~
+STR         EEE                                                            ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb E                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    KLVFFA                                                6          ~~~~
+STR        B  B                                                            ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb F                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    KLVFFA                                                6          ~~~~
+STR          EE                                                            ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+LOC  Strand       LEU     2 A      PHE      4 A                            ~~~~
+LOC  Strand       LEU     2 B      VAL      3 B                            ~~~~
+LOC  Strand       VAL     3 D      PHE      5 D                            ~~~~
+LOC  Strand       PHE    34 F      PHE     35 F                            ~~~~
+REM                                                                        ~~~~
+REM  --------------- Detailed secondary structure assignment-------------  ~~~~
+REM                                                                        ~~~~
+REM  |---Residue---|    |--Structure--|   |-Phi-|   |-Psi-|  |-Area-|      ~~~~
+ASG  LYS A    1    1    C          Coil    360.00    163.75     114.3      ~~~~
+ASG  LEU A    2    2    E        Strand   -146.24    132.99       0.0      ~~~~
+ASG  VAL A    3    3    E        Strand   -121.99    127.39      45.1      ~~~~
+ASG  PHE A    4    4    E        Strand   -129.70    136.59       5.6      ~~~~
+ASG  PHE A    5    5    C          Coil   -140.74    124.42     107.4      ~~~~
+ASG  ALA A    6    6    C          Coil   -130.04    360.00      68.0      ~~~~
+ASG  LYS B    1    1    C          Coil    360.00    163.75     114.3      ~~~~
+ASG  LEU B    2    2    E        Strand   -146.24    132.99       0.0      ~~~~
+ASG  VAL B    3    3    E        Strand   -121.99    127.39      45.1      ~~~~
+ASG  PHE B    4    4    C          Coil   -129.70    136.59       5.6      ~~~~
+ASG  PHE B    5    5    B        Bridge   -140.74    124.42     107.4      ~~~~
+ASG  ALA B    6    6    C          Coil   -130.04    360.00      68.0      ~~~~
+ASG  LYS C    1    1    C          Coil    360.00    127.30     110.4      ~~~~
+ASG  LEU C    2    2    C          Coil   -128.89    122.89     118.1      ~~~~
+ASG  VAL C    3    3    C          Coil   -130.42    131.81      34.6      ~~~~
+ASG  PHE C    4    4    C          Coil   -135.82    136.88     137.1      ~~~~
+ASG  PHE C    5    5    C          Coil   -150.64    158.91      27.9      ~~~~
+ASG  ALA C    6    6    C          Coil   -166.77    360.00     108.4      ~~~~
+ASG  LYS D    1    1    C          Coil    360.00    127.30     150.5      ~~~~
+ASG  LEU D    2    2    C          Coil   -128.89    122.89     100.5      ~~~~
+ASG  VAL D    3    3    E        Strand   -130.42    131.81      34.8      ~~~~
+ASG  PHE D    4    4    E        Strand   -135.82    136.88      99.6      ~~~~
+ASG  PHE D    5    5    E        Strand   -150.64    158.91      81.6      ~~~~
+ASG  ALA D    6    6    C          Coil   -166.77    360.00      83.1      ~~~~
+ASG  LYS E   25    1    C          Coil    360.00    127.30     110.4      ~~~~
+ASG  LEU E   26    2    B        Bridge   -128.89    122.89     118.1      ~~~~
+ASG  VAL E   27    3    C          Coil   -130.42    131.81      34.6      ~~~~
+ASG  PHE E   28    4    C          Coil   -135.82    136.88     137.1      ~~~~
+ASG  PHE E   29    5    B        Bridge   -150.64    158.91      27.9      ~~~~
+ASG  ALA E   30    6    C          Coil   -166.77    360.00     108.4      ~~~~
+ASG  LYS F   31    1    C          Coil    360.00    127.30     150.5      ~~~~
+ASG  LEU F   32    2    C          Coil   -128.89    122.89     100.5      ~~~~
+ASG  VAL F   33    3    C          Coil   -130.42    131.81      34.8      ~~~~
+ASG  PHE F   34    4    E        Strand   -135.82    136.88      99.6      ~~~~
+ASG  PHE F   35    5    E        Strand   -150.64    158.91      81.6      ~~~~
+ASG  ALA F   36    6    C          Coil   -166.77    360.00      83.1      ~~~~
