@@ -198,11 +198,7 @@ def get_alpha_by_index(i, j, alpha_i, chain_starts, chain_ends):
     return ALPHA_TABLE[alpha_i][beta_cls]
 
 def get_pap_gamma_APH(donor_idx, acceptor_idx, chain_i, chain_j, gamma_APH):
-    # if chain_i == chain_j and abs(j-i) < 13 or abs(j-i) > 16:
-    # if abs(j-i) < 13 or abs(j-i) > 16:
-    # if i-j < 13 or i-j > 16:
-    # if (donor_idx - acceptor_idx >= 13 and donor_idx - acceptor_idx <= 16) or chain_i != chain_j:
-    if (donor_idx - acceptor_idx >= 13 and donor_idx - acceptor_idx <= 16) and chain_i == chain_j:
+    if abs(donor_idx - acceptor_idx) >= 13 and abs(donor_idx - acceptor_idx) <= 16 and chain_i == chain_j:
         return gamma_APH
     else:
         return 0
@@ -212,8 +208,7 @@ def get_pap_gamma_AP(donor_idx, acceptor_idx, chain_i, chain_j, gamma_AP, ssweig
         additional_scale = 1.5
     else:
         additional_scale = 1.0
-    # if (donor_idx - acceptor_idx >= 17):
-    if (donor_idx - acceptor_idx >= 17) or chain_i != chain_j:
+    if abs(donor_idx - acceptor_idx) >= 17 or chain_i != chain_j:
         return additional_scale * gamma_AP
     else:
         return 0
@@ -223,7 +218,7 @@ def get_pap_gamma_P(donor_idx, acceptor_idx, chain_i, chain_j, gamma_P, ssweight
         additional_scale = 1.5
     else:
         additional_scale = 1.0
-    if (donor_idx - acceptor_idx >= 9) or chain_i != chain_j:
+    if abs(donor_idx - acceptor_idx) >= 9 or chain_i != chain_j:
         return additional_scale * gamma_P
     else:
         return 0
