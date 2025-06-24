@@ -56,15 +56,15 @@ def group_constraint_by_distance(oa, d0=0*angstrom, group1=None, group2=None, fo
     residues1 = []
     residues2 = []
     for r in group1:
-        #for a in [oa.ca[r], oa.cb[r], oa.o[r]]:
-        for a in [oa.ca[r]]:
-            if a != -1:
+        for a in [oa.ca[r], oa.cb[r], oa.o[r]]:
+        #for a in [oa.ca[r]]:
+            if a != -1:    # Catch glycine CB cases
                 residues1.append(a)
                 #print(f"Added residue index {r} and atom index {a}")
     for r in group2:
-        #for a in [oa.ca[r], oa.cb[r], oa.o[r]]:
-        for a in [oa.ca[r]]:
-            if a != -1:
+        for a in [oa.ca[r], oa.cb[r], oa.o[r]]:
+        #for a in [oa.ca[r]]:
+            if a != -1:    # Catch glycine CB cases
                 residues2.append(a)
                 #print(f"Added residue index {r} and atom index {a}")
     #print(f"Group 1 initially has {len(group1)} atoms and {len(residues1)} in.")
@@ -81,15 +81,17 @@ def measure_distance_group(oa, group1=None, group2=None, forceGroup=4): #Assign 
     residues1 = []
     residues2 = []
     for r in group1:
-        #residues1.extend([oa.ca[r], oa.cb[r], oa.o[r]])
-        for a in [oa.ca[r]]:
-            if a != -1:
+        for a in [oa.ca[r], oa.cb[r], oa.o[r]]:
+        #for a in [oa.ca[r]]:
+            if a != -1:    # Catch glycine CB cases
                 residues1.append(a)
+                #print(f"Added residue index {r} and atom index {a}")
     for r in group2:
-        #residues2.extend([oa.ca[r], oa.cb[r], oa.o[r]])
-        for a in [oa.ca[r]]:
-            if a != -1:
+        for a in [oa.ca[r], oa.cb[r], oa.o[r]]:
+        #for a in [oa.ca[r]]:
+            if a != -1:    # Catch glycine CB cases
                 residues2.append(a)
+                #print(f"Added residue index {r} and atom index {a}")
     constraint = CustomCentroidBondForce(2, f"distance(g1,g2)")
     # example group set up group1=[oa.ca[7], oa.cb[7]] use the ca and cb of residue 8.
     constraint.addGroup(residues1)    # group use particle index.
