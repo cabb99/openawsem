@@ -19,6 +19,15 @@ def constraint_by_distance(oa, res1, res2,  d0=0*angstrom, forceGroup=3, k=1*kil
     constraint.setForceGroup(forceGroup)
     return constraint
 
+def measure_distance(oa, res1, res2, forceGroup=4): #Assign to forceGroup 4 as measurement placeholder; Rg measurement is RESERVED forceGroup 3.
+    # print(len(oa.ca))
+    constraint = CustomBondForce(f"(r)")
+    # res1, res2 is 0 index. res1 = 0 means the first residue.
+    constraint.addBond(*[oa.ca[res1], oa.ca[res2]])         # you could also do constraint.addBond(oa.ca[res1], oa.ca[res2])
+    constraint.setForceGroup(forceGroup)
+    return constraint
+
+'''
 def group_constraint_by_distance(oa, d0=0*angstrom, group1=[oa.ca[0], oa.ca[1]], group2=[oa.ca[2], oa.ca[3]], forceGroup=3, k=1*kilocalorie_per_mole):
     # CustomCentroidBondForce only work with CUDA not OpenCL.
     # only CA, CB, O has mass. so the group have to include those.
@@ -26,6 +35,53 @@ def group_constraint_by_distance(oa, d0=0*angstrom, group1=[oa.ca[0], oa.ca[1]],
     k_constraint = k * oa.k_awsem
     d0 = d0.value_in_unit(nanometer)   # convert to nm
     constraint = CustomCentroidBondForce(2, f"0.5*{k_constraint}*(distance(g1,g2)-{d0})^2")
+    # example group set up group1=[oa.ca[7], oa.cb[7]] use the ca and cb of residue 8.
+    constraint.addGroup(group1)    # group use particle index.
+    constraint.addGroup(group2)
+    constraint.addBond([0, 1])
+    constraint.setForceGroup(forceGroup)
+    return constraint
+'''
+
+def group_constraint_by_distance(oa, d0=0*angstrom, group1=None, group2=None, forceGroup=3, k=1*kilocalorie_per_mole):
+    # CustomCentroidBondForce only work with CUDA not OpenCL.
+    # only CA, CB, O has mass. so the group have to include those. Steven Luo: amended the codes to implement all three types of atoms. Default assignment should be away from forceGroup 3.
+    if group1 is None or group2 is None:
+        raise ValueError("Both group1 and group2 must be provided as lists of residue indices.")
+    k = k.value_in_unit(kilojoule_per_mole)   # convert to kilojoule_per_mole, openMM default uses kilojoule_per_mole as energy.
+    k_constraint = k * oa.k_awsem
+    d0 = d0.value_in_unit(nanometer)   # convert to nm
+    constraint = CustomCentroidBondForce(2, f"0.5*{k_constraint}*(distance(g1,g2)-{d0})^2")
+    # example group set up group1=[oa.ca[7], oa.cb[7]] use the ca and cb of residue 8.
+    residues1 = []
+    residues2 = []
+    for r in group1:
+        #for a in [oa.ca[r], oa.cb[r], oa.o[r]]:
+        for a in [oa.ca[r]]:
+            if a != -1:
+                residues1.append(a)
+    for r in group2:
+        #for a in [oa.ca[r], oa.cb[r], oa.o[r]]:
+        for a in [oa.ca[r]]:
+            if a != -1:
+                residues2.append(a)
+    constraint.addGroup(residues1)    # group use particle index.
+    constraint.addGroup(residues2)
+    constraint.addBond([0, 1])
+    constraint.setForceGroup(forceGroup)
+    return constraint
+
+def measure_distance_group(oa, group1=None, group2=None, forceGroup=4): #Assign to forceGroup 4 as measurement placeholder; Rg measurement is RESERVED forceGroup 3.
+
+    if group1 is None or group2 is None:
+        raise ValueError("Both group1 and group2 must be provided as lists of residue indices.")
+    residues1 = []
+    residues2 = []
+    for r in group1:
+        residues1.extend([oa.ca[r], oa.cb[r], oa.o[r]])
+    for r in group2:
+        residues2.extend([oa.ca[r], oa.cb[r], oa.o[r]])
+    constraint = CustomCentroidBondForce(2, f"distance(g1,g2)")
     # example group set up group1=[oa.ca[7], oa.cb[7]] use the ca and cb of residue 8.
     constraint.addGroup(group1)    # group use particle index.
     constraint.addGroup(group2)
