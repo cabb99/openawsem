@@ -60,11 +60,15 @@ def group_constraint_by_distance(oa, d0=0*angstrom, group1=None, group2=None, fo
         for a in [oa.ca[r]]:
             if a != -1:
                 residues1.append(a)
+                print(f"Added residue index {r} and atom index {a}")
     for r in group2:
         #for a in [oa.ca[r], oa.cb[r], oa.o[r]]:
         for a in [oa.ca[r]]:
             if a != -1:
                 residues2.append(a)
+                print(f"Added residue index {r} and atom index {a}")
+    print(f"Group 1 initially has {len(group1)} atoms and {len(residues1)} in.")
+    print(f"Group 1 initially has {len(group2)} atoms and {len(residues2)} in.")
     constraint.addGroup(residues1)    # group use particle index.
     constraint.addGroup(residues2)
     constraint.addBond([0, 1])
@@ -72,15 +76,20 @@ def group_constraint_by_distance(oa, d0=0*angstrom, group1=None, group2=None, fo
     return constraint
 
 def measure_distance_group(oa, group1=None, group2=None, forceGroup=4): #Assign to forceGroup 4 as measurement placeholder; Rg measurement is RESERVED forceGroup 3.
-
     if group1 is None or group2 is None:
         raise ValueError("Both group1 and group2 must be provided as lists of residue indices.")
     residues1 = []
     residues2 = []
     for r in group1:
-        residues1.extend([oa.ca[r], oa.cb[r], oa.o[r]])
+        #residues1.extend([oa.ca[r], oa.cb[r], oa.o[r]])
+        for a in [oa.ca[r]]:
+            if a != -1:
+                residues1.append(a)
     for r in group2:
-        residues2.extend([oa.ca[r], oa.cb[r], oa.o[r]])
+        #residues2.extend([oa.ca[r], oa.cb[r], oa.o[r]])
+        for a in [oa.ca[r]]:
+            if a != -1:
+                residues2.append(a)
     constraint = CustomCentroidBondForce(2, f"distance(g1,g2)")
     # example group set up group1=[oa.ca[7], oa.cb[7]] use the ca and cb of residue 8.
     constraint.addGroup(group1)    # group use particle index.
