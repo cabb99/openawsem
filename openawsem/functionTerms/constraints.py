@@ -101,8 +101,11 @@ def measure_distance_group(oa, group1=None, group2=None, forceGroup=4): #Assign 
     return constraint
 
 from simtk.unit import dalton
-def group_constraint_by_position(oa, k=1*kilocalorie_per_mole, x0=10, y0=10, z0=10, appliedToResidues=-1, forceGroup=3):
+def group_constraint_by_position(oa, k=1*kilocalorie_per_mole, x0=10*angstrom, y0=10*angstrom, z0=10*angstrom, appliedToResidues=None, forceGroup=3):
     # x0, y0, z0 is in unit of nm.
+    x0 = x0.value_in_unit(nanometer)
+    y0 = y0.value_in_unit(nanometer)
+    z0 = z0.value_in_unit(nanometer)
     # appliedToResidues can be a list of residue index. for example appliedToResidues=[0, 1], to tether the first two residues.
     # 1 Kcal = 4.184 kJ strength by overall scaling
     k = k.value_in_unit(kilojoule_per_mole)   # convert to kilojoule_per_mole, openMM default uses kilojoule_per_mole as energy.
@@ -119,7 +122,7 @@ def group_constraint_by_position(oa, k=1*kilocalorie_per_mole, x0=10, y0=10, z0=
     print(f"mass can be retrieved as ", oa.system.getParticleMass(oa.ca[0]))
     total_mass = 0.0
     for i in range(oa.natoms):
-        if appliedToResidues == -1:
+        if appliedToResidues == None:
             mass = oa.system.getParticleMass(i).value_in_unit(dalton)
             sum_of_x_coord.addParticle(i, [mass])
             sum_of_y_coord.addParticle(i, [mass])
@@ -142,3 +145,43 @@ def group_constraint_by_position(oa, k=1*kilocalorie_per_mole, x0=10, y0=10, z0=
     harmonic.setForceGroup(forceGroup)
     return harmonic
 
+def measure_from_position(oa, x0=10*angstrom, y0=10*angstrom, z0=10*angstrom, appliedToResidues=None, forceGroup=3):
+    # x0, y0, z0 is in unit of nm.
+    x0 = x0.value_in_unit(nanometer)
+    y0 = y0.value_in_unit(nanometer)
+    z0 = z0.value_in_unit(nanometer)
+    # appliedToResidues can be a list of residue index. for example appliedToResidues=[0, 1], to tether the first two residues.
+    sum_of_x_coord = CustomExternalForce(f"x*mass")
+    sum_of_y_coord = CustomExternalForce(f"y*mass")
+    sum_of_z_coord = CustomExternalForce(f"z*mass")
+
+    sum_of_x_coord.addPerParticleParameter("mass")
+    sum_of_y_coord.addPerParticleParameter("mass")
+    sum_of_z_coord.addPerParticleParameter("mass")
+
+    # print("index for CAs", oa.ca)
+    print(f"mass can be retrieved as ", oa.system.getParticleMass(oa.ca[0]))
+    total_mass = 0.0
+    for i in range(oa.natoms):
+        if appliedToResidues == None:
+            mass = oa.system.getParticleMass(i).value_in_unit(dalton)
+            sum_of_x_coord.addParticle(i, [mass])
+            sum_of_y_coord.addParticle(i, [mass])
+            sum_of_z_coord.addParticle(i, [mass])
+            total_mass += mass
+        elif oa.resi[i] in appliedToResidues:
+            mass = oa.system.getParticleMass(i).value_in_unit(dalton)
+            sum_of_x_coord.addParticle(i, [mass])
+            sum_of_y_coord.addParticle(i, [mass])
+            sum_of_z_coord.addParticle(i, [mass])
+            total_mass += mass
+        # if oa.resi[i] == appliedToResidue:
+        #     pulling.addParticle(i)
+        # print(oa.resi[i] , oa.seq[oa.resi[i]])
+    print(f"total_mass = {total_mass}")
+    harmonic = CustomCVForce(f"(sum_x/{total_mass}-{x0})^2+(sum_y/{total_mass}-{y0})^2+(sum_z/{total_mass}-{z0})^2")
+    harmonic.addCollectiveVariable("sum_x", sum_of_x_coord)
+    harmonic.addCollectiveVariable("sum_y", sum_of_y_coord)
+    harmonic.addCollectiveVariable("sum_z", sum_of_z_coord)
+    harmonic.setForceGroup(forceGroup)
+    return harmonic
