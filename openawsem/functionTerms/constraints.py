@@ -185,3 +185,30 @@ def measure_from_position(oa, x0=10*angstrom, y0=10*angstrom, z0=10*angstrom, ap
     harmonic.addCollectiveVariable("sum_z", sum_of_z_coord)
     harmonic.setForceGroup(forceGroup)
     return harmonic
+
+# For more advanced OpenMM users, you can try using atom/coarse grained particle index.
+def group_index_constraint_by_distance(oa, d0=0*angstrom, group1=None, group2=None, forceGroup=3, k=1*kilocalorie_per_mole):
+    if group1 is None or group2 is None:
+        raise ValueError("Both group1 and group2 must be provided as lists of particle indices.")
+    k = k.value_in_unit(kilojoule_per_mole)   # convert to kilojoule_per_mole, openMM default uses kilojoule_per_mole as energy.
+    k_constraint = k * oa.k_awsem
+    d0 = d0.value_in_unit(nanometer)   # convert to nm
+    constraint = CustomCentroidBondForce(2, f"0.5*{k_constraint}*(distance(g1,g2)-{d0})^2")
+    # example group set up group1=[oa.ca[7], oa.cb[7]] use the ca and cb of residue 8.
+    #print(f"Group 1 initially has {len(group1)} atoms and {len(residues1)} in.")
+    #print(f"Group 1 initially has {len(group2)} atoms and {len(residues2)} in.")
+    constraint.addGroup(group1)    # group use particle index.
+    constraint.addGroup(group2)
+    constraint.addBond([0, 1])
+    constraint.setForceGroup(forceGroup)
+    return constraint
+
+def measure_distance_group_index(oa, group1=None, group2=None, forceGroup=4): #Assign to forceGroup 4 as measurement placeholder; Rg measurement is RESERVED forceGroup 3.
+    if group1 is None or group2 is None:
+        raise ValueError("Both group1 and group2 must be provided as lists of residue indices.")
+    constraint = CustomCentroidBondForce(2, f"distance(g1,g2)")
+    constraint.addGroup(group1)    # group use particle index.
+    constraint.addGroup(group2)
+    constraint.addBond([0, 1])
+    constraint.setForceGroup(forceGroup)
+    return constraint
