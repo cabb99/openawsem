@@ -112,6 +112,7 @@ def run(args):
         integrator = LangevinIntegrator(Tstart*kelvin, 1/picosecond, args.timeStep*femtoseconds)
         simulation = Simulation(oa.pdb.topology, oa.system, integrator, platform)
         simulation.loadCheckpoint(checkPointPath)
+        reporter_append = True
     else:
         # output the native and the structure after minimization
         integrator = CustomIntegrator(0.001)
@@ -122,6 +123,7 @@ def run(args):
         simulation.step(int(1))
         simulation.minimizeEnergy()  # first, minimize the energy to a local minimum to reduce any large forces that might be present
         simulation.step(int(1))
+        reporter_append = False
 
 
         # print("------------------Folding-------------------")
@@ -142,9 +144,9 @@ def run(args):
 
     print("report_interval", args.reportInterval)
     print("num_frames", args.numFrames)
-    simulation.reporters.append(StateDataReporter(sys.stdout, args.reportInterval, step=True, potentialEnergy=True, temperature=True))  # output energy and temperature during simulation
-    simulation.reporters.append(StateDataReporter(os.path.join(toPath, "output.log"), args.reportInterval, step=True, potentialEnergy=True, temperature=True)) # output energy and temperature to a file
-    simulation.reporters.append(PDBReporter(os.path.join(toPath, "movie.pdb"), reportInterval=args.reportInterval))  # output PDBs of simulated structures
+    simulation.reporters.append(StateDataReporter(sys.stdout, args.reportInterval, step=True, potentialEnergy=True, temperature=True, append=reporter_append))  # output energy and temperature during simulation
+    simulation.reporters.append(StateDataReporter(os.path.join(toPath, "output.log"), args.reportInterval, step=True, potentialEnergy=True, temperature=True, append=reporter_append)) # output energy and temperature to a file
+    simulation.reporters.append(PDBReporter(os.path.join(toPath, "movie.pdb"), reportInterval=args.reportInterval))  # output PDBs of simulated structures; appending not supported by openmm
     simulation.reporters.append(DCDReporter(os.path.join(toPath, "movie.dcd"), reportInterval=args.reportInterval, append=True))  # output PDBs of simulated structures
     # simulation.reporters.append(DCDReporter(os.path.join(args.to, "movie.dcd"), 1))  # output PDBs of simulated structures
     # simulation.reporters.append(PDBReporter(os.path.join(args.to, "movie.pdb"), 1))  # output PDBs of simulated structures
