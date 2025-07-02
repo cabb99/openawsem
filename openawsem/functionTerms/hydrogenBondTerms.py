@@ -471,7 +471,7 @@ def pap_term_1(oa, k=0.5*kilocalories_per_mole, dis_i_to_i4=1.2, forceGroup=28, 
     if version == 'lammps_awsemmd':
         warnings.warn("lammps_awsemmd implements both pap_term_1 and pap_term_2 as a single term, pap_term_old().\
                Calling pap_term_old() instead and assigning to forceGroup 26.",stacklevel=2)
-        return pap_term_old(oa, k_pap=k, ssweight_filename=ssweight_filename)
+        return pap_term_old(oa, k_pap=k, ssweight_file=ssweight_file)
     elif version == 'efficiency_optimized':
         print(f"pap_term_1 ({version} version) on")
         return _pap_efficiency_optimized(oa, 1, ssweight_file, forceGroup, k, dis_i_to_i4, pap_nu_on)
