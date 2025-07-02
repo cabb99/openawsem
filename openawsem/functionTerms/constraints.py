@@ -203,12 +203,105 @@ def group_index_constraint_by_distance(oa, d0=0*angstrom, group1=None, group2=No
     constraint.setForceGroup(forceGroup)
     return constraint
 
-def measure_distance_group_index(oa, group1=None, group2=None, forceGroup=4): #Assign to forceGroup 4 as measurement placeholder; Rg measurement is RESERVED forceGroup 3.
+def measure_distance_group_index(group1=None, group2=None, forceGroup=4): #Assign to forceGroup 4 as measurement placeholder; Rg measurement is RESERVED forceGroup 3.
     if group1 is None or group2 is None:
-        raise ValueError("Both group1 and group2 must be provided as lists of residue indices.")
+        raise ValueError("Both group1 and group2 must be provided as lists of particle indices.")
     constraint = CustomCentroidBondForce(2, f"distance(g1,g2)")
     constraint.addGroup(group1)    # group use particle index.
     constraint.addGroup(group2)
     constraint.addBond([0, 1])
     constraint.setForceGroup(forceGroup)
     return constraint
+
+def group_index_constraint_by_position(oa, k=1*kilocalorie_per_mole, x0=10*angstrom, y0=10*angstrom, z0=10*angstrom, appliedToResidues=None, forceGroup=3):
+    # appliedToResidues really takes in Particle Incidies and NOT Residue Indicies; variable name left as is for now.
+    # x0, y0, z0 is in unit of nm.
+    x0 = x0.value_in_unit(nanometer)
+    y0 = y0.value_in_unit(nanometer)
+    z0 = z0.value_in_unit(nanometer)
+    # appliedToResidues can be a list of residue index. for example appliedToResidues=[0, 1], to tether the first two residues.
+    # 1 Kcal = 4.184 kJ strength by overall scaling
+    k = k.value_in_unit(kilojoule_per_mole)   # convert to kilojoule_per_mole, openMM default uses kilojoule_per_mole as energy.
+    k_constraint = k * oa.k_awsem
+    sum_of_x_coord = CustomExternalForce(f"x*mass")
+    sum_of_y_coord = CustomExternalForce(f"y*mass")
+    sum_of_z_coord = CustomExternalForce(f"z*mass")
+
+    sum_of_x_coord.addPerParticleParameter("mass")
+    sum_of_y_coord.addPerParticleParameter("mass")
+    sum_of_z_coord.addPerParticleParameter("mass")
+
+    # print("index for CAs", oa.ca)
+    #print(f"mass can be retrieved as ", oa.system.getParticleMass(oa.ca[0]))
+    total_mass = 0.0
+    for i in range(oa.natoms):
+        if appliedToResidues == None:
+            #mass = oa.system.getParticleMass(i).value_in_unit(dalton)
+            mass = 1   #mass = 1 is a temporary placeholder
+            sum_of_x_coord.addParticle(i, [mass])
+            sum_of_y_coord.addParticle(i, [mass])
+            sum_of_z_coord.addParticle(i, [mass])
+            total_mass += mass
+        else:
+            for i in appliedToResidues:
+                #mass = oa.system.getParticleMass(i).value_in_unit(dalton)
+                mass = 1
+                sum_of_x_coord.addParticle(i, [mass])
+                sum_of_y_coord.addParticle(i, [mass])
+                sum_of_z_coord.addParticle(i, [mass])
+                total_mass += mass
+        # if oa.resi[i] == appliedToResidue:
+        #     pulling.addParticle(i)
+        # print(oa.resi[i] , oa.seq[oa.resi[i]])
+    print(f"total_mass = {total_mass}")
+    harmonic = CustomCVForce(f"{k_constraint}*((sum_x/{total_mass}-{x0})^2+(sum_y/{total_mass}-{y0})^2+(sum_z/{total_mass}-{z0})^2)")
+    harmonic.addCollectiveVariable("sum_x", sum_of_x_coord)
+    harmonic.addCollectiveVariable("sum_y", sum_of_y_coord)
+    harmonic.addCollectiveVariable("sum_z", sum_of_z_coord)
+    harmonic.setForceGroup(forceGroup)
+    return harmonic
+
+def measure_from_position_index(oa, x0=10*angstrom, y0=10*angstrom, z0=10*angstrom, appliedToResidues=None, forceGroup=4):
+    # appliedToResidues really takes in Particle Incidies and NOT Residue Indicies; variable name left as is for now.
+    # x0, y0, z0 is in unit of nm.
+    x0 = x0.value_in_unit(nanometer)
+    y0 = y0.value_in_unit(nanometer)
+    z0 = z0.value_in_unit(nanometer)
+    # appliedToResidues can be a list of residue index. for example appliedToResidues=[0, 1], to tether the first two residues.
+    sum_of_x_coord = CustomExternalForce(f"x*mass")
+    sum_of_y_coord = CustomExternalForce(f"y*mass")
+    sum_of_z_coord = CustomExternalForce(f"z*mass")
+
+    sum_of_x_coord.addPerParticleParameter("mass")
+    sum_of_y_coord.addPerParticleParameter("mass")
+    sum_of_z_coord.addPerParticleParameter("mass")
+
+    # print("index for CAs", oa.ca)
+    #print(f"mass can be retrieved as ", oa.system.getParticleMass(oa.ca[0]))
+    total_mass = 0.0
+    for i in range(oa.natoms):
+        if appliedToResidues == None:
+            #mass = oa.system.getParticleMass(i).value_in_unit(dalton)
+            mass = 1
+            sum_of_x_coord.addParticle(i, [mass])
+            sum_of_y_coord.addParticle(i, [mass])
+            sum_of_z_coord.addParticle(i, [mass])
+            total_mass += mass
+        else:
+            for i in appliedToResidues:
+                #mass = oa.system.getParticleMass(i).value_in_unit(dalton)
+                mass = 1
+                sum_of_x_coord.addParticle(i, [mass])
+                sum_of_y_coord.addParticle(i, [mass])
+                sum_of_z_coord.addParticle(i, [mass])
+                total_mass += mass
+        # if oa.resi[i] == appliedToResidue:
+        #     pulling.addParticle(i)
+        # print(oa.resi[i] , oa.seq[oa.resi[i]])
+    print(f"total_mass = {total_mass}")
+    harmonic = CustomCVForce(f"(sum_x/{total_mass}-{x0})^2+(sum_y/{total_mass}-{y0})^2+(sum_z/{total_mass}-{z0})^2")
+    harmonic.addCollectiveVariable("sum_x", sum_of_x_coord)
+    harmonic.addCollectiveVariable("sum_y", sum_of_y_coord)
+    harmonic.addCollectiveVariable("sum_z", sum_of_z_coord)
+    harmonic.setForceGroup(forceGroup)
+    return harmonic
