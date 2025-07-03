@@ -234,22 +234,22 @@ def group_index_constraint_by_position(oa, k=1*kilocalorie_per_mole, x0=10*angst
     # print("index for CAs", oa.ca)
     #print(f"mass can be retrieved as ", oa.system.getParticleMass(oa.ca[0]))
     total_mass = 0.0
-    for i in range(oa.natoms):
-        if appliedToResidues == None:
+    if appliedToResidues == None:
+        for i in range(oa.natoms):
             #mass = oa.system.getParticleMass(i).value_in_unit(dalton)
             mass = 1   #mass = 1 is a temporary placeholder
             sum_of_x_coord.addParticle(i, [mass])
             sum_of_y_coord.addParticle(i, [mass])
             sum_of_z_coord.addParticle(i, [mass])
             total_mass += mass
-        else:
-            for i in appliedToResidues:
-                #mass = oa.system.getParticleMass(i).value_in_unit(dalton)
-                mass = 1
-                sum_of_x_coord.addParticle(i, [mass])
-                sum_of_y_coord.addParticle(i, [mass])
-                sum_of_z_coord.addParticle(i, [mass])
-                total_mass += mass
+    else:
+        for i in appliedToResidues:
+            #mass = oa.system.getParticleMass(i).value_in_unit(dalton)
+            mass = 1
+            sum_of_x_coord.addParticle(i, [mass])
+            sum_of_y_coord.addParticle(i, [mass])
+            sum_of_z_coord.addParticle(i, [mass])
+            total_mass += mass
         # if oa.resi[i] == appliedToResidue:
         #     pulling.addParticle(i)
         # print(oa.resi[i] , oa.seq[oa.resi[i]])
@@ -279,22 +279,22 @@ def measure_from_position_index(oa, x0=10*angstrom, y0=10*angstrom, z0=10*angstr
     # print("index for CAs", oa.ca)
     #print(f"mass can be retrieved as ", oa.system.getParticleMass(oa.ca[0]))
     total_mass = 0.0
-    for i in range(oa.natoms):
-        if appliedToResidues == None:
+    if appliedToResidues == None:
+        for i in range(oa.natoms):
             #mass = oa.system.getParticleMass(i).value_in_unit(dalton)
             mass = 1
             sum_of_x_coord.addParticle(i, [mass])
             sum_of_y_coord.addParticle(i, [mass])
             sum_of_z_coord.addParticle(i, [mass])
             total_mass += mass
-        else:
-            for i in appliedToResidues:
-                #mass = oa.system.getParticleMass(i).value_in_unit(dalton)
-                mass = 1
-                sum_of_x_coord.addParticle(i, [mass])
-                sum_of_y_coord.addParticle(i, [mass])
-                sum_of_z_coord.addParticle(i, [mass])
-                total_mass += mass
+    else:
+        for i in appliedToResidues:
+            #mass = oa.system.getParticleMass(i).value_in_unit(dalton)
+            mass = 1
+            sum_of_x_coord.addParticle(i, [mass])
+            sum_of_y_coord.addParticle(i, [mass])
+            sum_of_z_coord.addParticle(i, [mass])
+            total_mass += mass
         # if oa.resi[i] == appliedToResidue:
         #     pulling.addParticle(i)
         # print(oa.resi[i] , oa.seq[oa.resi[i]])
