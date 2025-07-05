@@ -203,7 +203,9 @@ def group_index_constraint_by_distance(oa, d0=0*angstrom, group1=None, group2=No
     constraint.setForceGroup(forceGroup)
     return constraint
 
-def measure_distance_group_index(group1=None, group2=None, forceGroup=4): #Assign to forceGroup 4 as measurement placeholder; Rg measurement is RESERVED forceGroup 3.
+def measure_distance_group_index(oa, group1=None, group2=None, forceGroup=4): #Assign to forceGroup 4 as measurement placeholder; Rg measurement is RESERVED forceGroup 3.
+    #oa argument is not used at all here but is a placeholder to simplify forces setup file and avoid errors namely double assignment.
+    #The first argument in every openawsem function is the oa function which takes in the protein itself.
     if group1 is None or group2 is None:
         raise ValueError("Both group1 and group2 must be provided as lists of particle indices.")
     constraint = CustomCentroidBondForce(2, f"distance(g1,g2)")
