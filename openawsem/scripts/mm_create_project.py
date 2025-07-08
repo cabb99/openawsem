@@ -514,7 +514,7 @@ def main(args=None):
 
     args.keepIds = not args.resetIds
 
-    if args.to and len(args.protein) > 1:
+    if args.to and len(args.proteins) > 1:
         raise ValueError("--to flag may not be used with more than one protein given on command line")
     
     # Set the verbosity level for logging
