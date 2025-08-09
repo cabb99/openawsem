@@ -586,6 +586,44 @@ def create_fragment_memories(database, fasta_file, memories_per_position, brain_
                     print(pdbID)
 
     # loop1 close
+    # it is possible for our parallel processes to write duplicate memories
+    lines = []
+    duplicate_lines = []    
+    with open('frags.mem','r') as f:
+        for counter, line in enumerate(f):
+            if counter < 4: # headers
+                lines.append(line)
+            elif line in lines:
+                duplicate_lines.append(line)  
+            else:
+                lines.append(line)  
+    if duplicate_lines:
+        print("Found and removed duplicate memories. This may cause you to drop below the target memory count")    
+    # remove lines in excess of memories_per_position
+    new_lines = []
+    extra_lines = []
+    start_counts = {}
+    for counter, line in enumerate(lines):
+        if counter < 4: # headers
+            new_lines.append(line)
+        else:
+            start_res = int(line.split(" ")[1])
+            if start_res not in start_counts.keys():
+                start_counts.update({start_res:1})
+                new_lines.append(line)
+            else:
+                start_counts[start_res] += 1
+                if start_counts[start_res] <= memories_per_position:
+                    new_lines.append(line)
+                else:
+                    extra_lines.append(line)
+    if extra_lines:
+        print("Found and removed memories in excess of the memories_per_position limit")
+
+    # write file again with removed lines
+    with open('frags.mem','w') as f:
+        for line in new_lines:
+            f.write(line)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process some inputs.")
