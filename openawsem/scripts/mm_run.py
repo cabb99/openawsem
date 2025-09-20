@@ -108,6 +108,13 @@ def run(args):
         oa.system.removeForce(0)
     oa.addForcesWithDefaultForceGroup(myForces)
 
+    #Define output paths
+    output_path = os.path.join(toPath, "output.log")
+    native_pdb_path = os.path.join(toPath, "native.pdb")
+    movie_pdb_path = os.path.join(toPath, "movie.pdb")
+    movie_dcd_path = os.path.join(toPath, "movie.dcd")
+    checkpoint_path = os.path.join(toPath, args.checkpointFile)
+
     if args.fromCheckPoint:
         integrator = LangevinIntegrator(Tstart*kelvin, 1/picosecond, args.timeStep*femtoseconds)
         simulation = Simulation(oa.pdb.topology, oa.system, integrator, platform)
@@ -118,8 +125,8 @@ def run(args):
         integrator = CustomIntegrator(0.001)
         simulation = Simulation(oa.pdb.topology, oa.system, integrator, platform)
         simulation.context.setPositions(oa.pdb.positions)  # set the initial positions of the atoms
-        simulation.reporters.append(PDBReporter(os.path.join(toPath, "native.pdb"), 1))
-        simulation.reporters.append(DCDReporter(os.path.join(toPath, "movie.dcd"), 1))
+        simulation.reporters.append(PDBReporter(native_pdb_path, 1))
+        simulation.reporters.append(DCDReporter(movie_dcd_path, 1))
         simulation.step(int(1))
         simulation.minimizeEnergy()  # first, minimize the energy to a local minimum to reduce any large forces that might be present
         simulation.step(int(1))
@@ -145,27 +152,56 @@ def run(args):
     print("report_interval", args.reportInterval)
     print("num_frames", args.numFrames)
 
-    output_path = os.path.join(toPath, "output.log")
+    # Backup existing files
     if reporter_append:
-        if not os.path.exists(output_path):
-            raise AssertionError(f"Could not find file {output_path} to append new info to.")
-        else:
-            counter = 1
-            while True:
-                backup_log = os.path.join(toPath, f"output_{counter:03d}.log")
-                if not os.path.exists(backup_log):
-                    print(f"making backup log file output_{counter:03d}.log")
-                    os.system(f"cp {output_path} {backup_log}")
+        # Ensure backup directory exists
+        backup_dir = os.path.join(toPath, "backup")
+        os.makedirs(backup_dir, exist_ok=True)
+        # Find the next available backup number
+        backup_counter = 1
+        for i in range(1,1000):
+            backup_log = os.path.join(backup_dir, f"output_{backup_counter:03d}.log")
+            backup_dcd = os.path.join(backup_dir, f"movie_{backup_counter:03d}.dcd")
+            backup_chk = os.path.join(backup_dir, f"checkpoint_{backup_counter:03d}.chk")
+            if not (os.path.exists(backup_log) or os.path.exists(backup_dcd) or os.path.exists(backup_chk)):
+                break
+            if i == 999:
+                raise RuntimeError("Too many backup files.")
+            backup_counter += 1
+        # Backup output.log
+        if os.path.exists(output_path):
+            print(f"Making backup log file backup/output_{backup_counter:03d}.log")
+            os.system(f"cp {output_path} {backup_log}")
+        # Backup movie.dcd
+        if os.path.exists(movie_dcd_path):
+            print(f"Making backup dcd file backup/movie_{backup_counter:03d}.dcd")
+            os.system(f"cp {movie_dcd_path} {backup_dcd}")
+        # Backup checkpoint
+        if os.path.exists(checkpoint_path):
+            print(f"Making backup checkpoint file backup/checkpoint_{backup_counter:03d}.chk")
+            os.system(f"cp {checkpoint_path} {backup_chk}")
+    else:
+        # Only backup checkpoint if it exists
+        if os.path.exists(checkpoint_path):
+            past_chk_dir = os.path.join(toPath, "past_checkpoints")
+            os.makedirs(past_chk_dir, exist_ok=True)
+            backup_counter = 1
+            for i in range(1,1000):
+                backup_chk = os.path.join(past_chk_dir, f"checkpoint_used_{backup_counter:03d}.chk")
+                if not os.path.exists(backup_chk):
                     break
-                else:
-                    counter += 1                
+                if i == 999:
+                    raise RuntimeError("Too many used checkpoint files.")
+                backup_counter += 1
+            # Backup checkpoint
+            print(f"Making backup for used checkpoint file past_checkpoints/checkpoint_used_{backup_counter:03d}.chk")
+            os.system(f"cp {checkpoint_path} {backup_chk}")
+    
     simulation.reporters.append(StateDataReporter(sys.stdout, args.reportInterval, step=True, potentialEnergy=True, temperature=True, append=reporter_append))  # output energy and temperature during simulation to terminal
     simulation.reporters.append(StateDataReporter(output_path, args.reportInterval, step=True, potentialEnergy=True, temperature=True, append=reporter_append)) # output energy and temperature to a file
-    simulation.reporters.append(PDBReporter(os.path.join(toPath, "movie.pdb"), reportInterval=args.reportInterval))  # output PDBs of simulated structures; appending not supported by openmm
-    simulation.reporters.append(DCDReporter(os.path.join(toPath, "movie.dcd"), reportInterval=args.reportInterval, append=reporter_append))  # output PDBs of simulated structures
-    # simulation.reporters.append(DCDReporter(os.path.join(args.to, "movie.dcd"), 1))  # output PDBs of simulated structures
-    # simulation.reporters.append(PDBReporter(os.path.join(args.to, "movie.pdb"), 1))  # output PDBs of simulated structures
-    simulation.reporters.append(CheckpointReporter(os.path.join(toPath, args.checkpointFile), args.checkpointInterval))  # save progress during the simulation
+    simulation.reporters.append(PDBReporter(movie_pdb_path, reportInterval=args.reportInterval))  # output PDBs of simulated structures; appending not supported by openmm
+    simulation.reporters.append(DCDReporter(movie_dcd_path, reportInterval=args.reportInterval, append=True))  # output PDBs of simulated structures. DCD is appending to the minimization output if it exists
+    simulation.reporters.append(CheckpointReporter(checkpoint_path, args.checkpointInterval))  # save progress during the simulation
 
     if args.dryRun:
         if args.simulation_mode == 1: # test temperature setting
