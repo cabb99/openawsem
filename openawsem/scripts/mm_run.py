@@ -117,7 +117,7 @@ def run(args):
         integrator = CustomIntegrator(0.001)
         simulation = Simulation(oa.pdb.topology, oa.system, integrator, platform)
         simulation.context.setPositions(oa.pdb.positions)  # set the initial positions of the atoms
-        simulation.reporters.append(PDBReporter(os.path.join(toPath, "native.pdb"), 1))
+        simulation.reporters.append(PDBReporter(os.path.join(toPath, "native.pdb"), 1)) 
         simulation.reporters.append(DCDReporter(os.path.join(toPath, "movie.dcd"), 1))
         simulation.step(int(1))
         simulation.minimizeEnergy()  # first, minimize the energy to a local minimum to reduce any large forces that might be present
@@ -144,10 +144,8 @@ def run(args):
     print("num_frames", args.numFrames)
     simulation.reporters.append(StateDataReporter(sys.stdout, args.reportInterval, step=True, potentialEnergy=True, temperature=True))  # output energy and temperature during simulation
     simulation.reporters.append(StateDataReporter(os.path.join(toPath, "output.log"), args.reportInterval, step=True, potentialEnergy=True, temperature=True)) # output energy and temperature to a file
-    simulation.reporters.append(PDBReporter(os.path.join(toPath, "movie.pdb"), reportInterval=args.reportInterval))  # output PDBs of simulated structures
+    #simulation.reporters.append(PDBReporter(os.path.join(toPath, "movie.pdb"), reportInterval=args.reportInterval)) # you may uncomment this line after reading https://github.com/cabb99/openawsem/issues/86
     simulation.reporters.append(DCDReporter(os.path.join(toPath, "movie.dcd"), reportInterval=args.reportInterval, append=True))  # output PDBs of simulated structures
-    # simulation.reporters.append(DCDReporter(os.path.join(args.to, "movie.dcd"), 1))  # output PDBs of simulated structures
-    # simulation.reporters.append(PDBReporter(os.path.join(args.to, "movie.pdb"), 1))  # output PDBs of simulated structures
     simulation.reporters.append(CheckpointReporter(os.path.join(toPath, args.checkpointFile), args.checkpointInterval))  # save progress during the simulation
 
     if args.dryRun:
