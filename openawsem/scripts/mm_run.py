@@ -117,7 +117,7 @@ def run(args):
         integrator = CustomIntegrator(0.001)
         simulation = Simulation(oa.pdb.topology, oa.system, integrator, platform)
         simulation.context.setPositions(oa.pdb.positions)  # set the initial positions of the atoms
-        simulation.reporters.append(PDBReporter(os.path.join(toPath, "native.pdb"), 1))
+        #simulation.reporters.append(PDBReporter(os.path.join(toPath, "native.pdb"), 1)) # you may uncomment this line after reading https://github.com/cabb99/openawsem/issues/86
         simulation.reporters.append(DCDReporter(os.path.join(toPath, "movie.dcd"), 1))
         simulation.step(int(1))
         simulation.minimizeEnergy()  # first, minimize the energy to a local minimum to reduce any large forces that might be present
