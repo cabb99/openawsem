@@ -127,8 +127,10 @@ def run(args):
         integrator = CustomIntegrator(0.001)
         simulation = Simulation(oa.pdb.topology, oa.system, integrator, platform)
         simulation.context.setPositions(oa.pdb.positions)  # set the initial positions of the atoms
+
         simulation.reporters.append(PDBReporter(native_pdb_path, 1))
         simulation.reporters.append(DCDReporter(movie_dcd_path, 1))
+        
         simulation.step(int(1))
         simulation.minimizeEnergy()  # first, minimize the energy to a local minimum to reduce any large forces that might be present
         simulation.step(int(1))
@@ -209,7 +211,7 @@ def run(args):
     
     simulation.reporters.append(StateDataReporter(sys.stdout, args.reportInterval, step=True, potentialEnergy=True, temperature=True, append=reporter_append))  # output energy and temperature during simulation to terminal
     simulation.reporters.append(StateDataReporter(output_path, args.reportInterval, step=True, potentialEnergy=True, temperature=True, append=reporter_append)) # output energy and temperature to a file
-    simulation.reporters.append(PDBReporter(movie_pdb_path, reportInterval=args.reportInterval))  # output PDBs of simulated structures; appending not supported by openmm
+    simulation.reporters.append(PDBReporter(movie_pdb_path, reportInterval=args.reportInterval))  # output PDBs of simulated structures; deprecated (see https://github.com/cabb99/openawsem/issues/86)
     simulation.reporters.append(DCDReporter(movie_dcd_path, reportInterval=args.reportInterval, append=True))  # output PDBs of simulated structures. DCD is appending to the minimization output if it exists
     simulation.reporters.append(CheckpointReporter(checkpoint_path, args.checkpointInterval))  # save progress during the simulation
 
