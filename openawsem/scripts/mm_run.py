@@ -113,6 +113,8 @@ def run(args):
     native_pdb_path = os.path.join(toPath, "native.pdb")
     movie_pdb_path = os.path.join(toPath, "movie.pdb")
     movie_dcd_path = os.path.join(toPath, "movie.dcd")
+    time_dat_path = os.path.join(toPath, "time.dat")
+    info_dat_path = os.path.join(toPath, "info.dat")
     checkpoint_path = os.path.join(toPath, args.checkpointFile)
 
     if args.fromCheckPoint:
@@ -154,39 +156,12 @@ def run(args):
 
     # Backup existing files
     if reporter_append:
-        # Ensure backup directory exists
-        backup_dir = os.path.join(toPath, "backup")
-        os.makedirs(backup_dir, exist_ok=True)
-        # Find the next available backup number
-        backup_counter = 1
-        for i in range(1,1000):
-            backup_log = os.path.join(backup_dir, f"output_{backup_counter:03d}.log")
-            backup_dcd = os.path.join(backup_dir, f"movie_{backup_counter:03d}.dcd")
-            backup_chk = os.path.join(backup_dir, f"checkpoint_{backup_counter:03d}.chk")
-            if not (os.path.exists(backup_log) or os.path.exists(backup_dcd) or os.path.exists(backup_chk)):
-                break
-            if i == 999:
-                raise RuntimeError("Too many backup files.")
-            backup_counter += 1
-        # Backup output.log
-        if os.path.exists(output_path):
-            print(f"Making backup log file backup/output_{backup_counter:03d}.log")
-            os.system(f"cp {output_path} {backup_log}")
-        # Backup movie.dcd
-        if os.path.exists(movie_dcd_path):
-            print(f"Making backup dcd file backup/movie_{backup_counter:03d}.dcd")
-            os.system(f"cp {movie_dcd_path} {backup_dcd}")
-        # Backup checkpoint
-        if os.path.exists(checkpoint_path):
-            print(f"Making backup checkpoint file backup/checkpoint_{backup_counter:03d}.chk")
-            os.system(f"cp {checkpoint_path} {backup_chk}")
-    else:
         # Only backup checkpoint if it exists
         if os.path.exists(checkpoint_path):
             past_chk_dir = os.path.join(toPath, "past_checkpoints")
             os.makedirs(past_chk_dir, exist_ok=True)
-            backup_counter = 1
-            for i in range(1,1000):
+            backup_counter = 0
+            for i in range(1000):
                 backup_chk = os.path.join(past_chk_dir, f"checkpoint_used_{backup_counter:03d}.chk")
                 if not os.path.exists(backup_chk):
                     break
@@ -196,6 +171,41 @@ def run(args):
             # Backup checkpoint
             print(f"Making backup for used checkpoint file past_checkpoints/checkpoint_used_{backup_counter:03d}.chk")
             os.system(f"cp {checkpoint_path} {backup_chk}")
+    else:
+        # Ensure backup directory exists
+        backup_dir = os.path.join(toPath, "backup")
+        os.makedirs(backup_dir, exist_ok=True)
+        # Define files to backup: (source_path, backup_prefix, description)
+        files_to_backup = [
+            (output_path, "output", "log file"),
+            (movie_dcd_path, "movie", "dcd file"),
+            (checkpoint_path, "checkpoint", "checkpoint file"),
+            (info_dat_path, "info", "info file"),
+            (time_dat_path, "time", "time file")
+        ]
+        
+        # Find the next available backup number
+        backup_counter = 0
+        for i in range(1000):
+            backup_paths = [os.path.join(backup_dir, f"{prefix}_{backup_counter:03d}.{ext}") 
+                           for _, prefix, _ in files_to_backup 
+                           for ext in (['log'] if prefix == 'output' else 
+                                       ['dcd'] if prefix == 'movie' else 
+                                       ['chk'] if prefix == 'checkpoint' else ['dat'])]
+            if not any(os.path.exists(path) for path in backup_paths):
+                break
+            if i == 999:
+                raise RuntimeError("Too many backup files.")
+            backup_counter += 1
+        
+        # Backup all files
+        for source_path, prefix, description in files_to_backup:
+            if os.path.exists(source_path):
+                ext = 'log' if prefix == 'output' else 'dcd' if prefix == 'movie' else 'chk' if prefix == 'checkpoint' else 'dat'
+                backup_path = os.path.join(backup_dir, f"{prefix}_{backup_counter:03d}.{ext}")
+                print(f"Making backup {description} backup/{prefix}_{backup_counter:03d}.{ext}")
+                os.system(f"cp {source_path} {backup_path}")
+
     
     simulation.reporters.append(StateDataReporter(sys.stdout, args.reportInterval, step=True, potentialEnergy=True, temperature=True, append=reporter_append))  # output energy and temperature during simulation to terminal
     simulation.reporters.append(StateDataReporter(output_path, args.reportInterval, step=True, potentialEnergy=True, temperature=True, append=reporter_append)) # output energy and temperature to a file
@@ -242,8 +252,7 @@ def run(args):
     minutes, seconds = divmod(rest, 60)
     print(f"---{hours} hours {minutes} minutes {seconds} seconds ---")
 
-    timeFile = os.path.join(toPath, "time.dat")
-    with open(timeFile, "w") as out:
+    with open(time_dat_path, "w") as out:
         out.write(str(time_taken)+"\n")
 
     # accompany with analysis run
@@ -264,7 +273,7 @@ def run(args):
         additional_cmd += f"--fixed_residue_indices {fixed_residue_indices} "
     if args.fromOpenMMPDB:
         additional_cmd += f"--fromOpenMMPDB "
-    os.system(f"{sys.executable} mm_analyze.py {args.protein} -t {os.path.join(toPath, 'movie.dcd')} --subMode {args.subMode} -f {args.forces} {analysis_fasta} {additional_cmd} -c {chain}")
+    os.system(f"{sys.executable} mm_analyze.py {args.protein} -t {os.path.join(toPath, 'movie.dcd')} --subMode {args.subMode} -f {args.forces} {analysis_fasta} {additional_cmd} -c {chain} --output {info_dat_path}")
 
 
 
