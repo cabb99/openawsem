@@ -145,22 +145,25 @@ def run(args):
 
     print("report_interval", args.reportInterval)
     print("num_frames", args.numFrames)
+
+    output_path = os.path.join(toPath, "output.log")
     if reporter_append:
-        if not os.path.exists(os.path.join(toPath, "output.log")):
-            raise AssertionError(f"Could not find file {os.path.join(toPath, "output.log")} to append new info to. This is probably a bug in this script")
+        if not os.path.exists(output_path):
+            raise AssertionError(f"Could not find file {output_path} to append new info to.")
         else:
             counter = 1
             while True:
-                if not os.path.exists(os.path.join(toPath, f"output_{counter}.log")):
-                    print(f"making backup log file output_{counter}.log")
-                    subprocess.run(['cp', os.path.join(toPath, "output.log"), os.path.join(toPath, f"output_{counter}.log")
+                backup_log = os.path.join(toPath, f"output_{counter:03d}.log")
+                if not os.path.exists(backup_log):
+                    print(f"making backup log file output_{counter:03d}.log")
+                    os.system(f"cp {output_path} {backup_log}")
                     break
                 else:
                     counter += 1                
-    simulation.reporters.append(StateDataReporter(sys.stdout, args.reportInterval, step=True, potentialEnergy=True, temperature=True, append=reporter_append))  # output energy and temperature during simulation
-    simulation.reporters.append(StateDataReporter(os.path.join(toPath, "output.log"), args.reportInterval, step=True, potentialEnergy=True, temperature=True, append=reporter_append)) # output energy and temperature to a file
+    simulation.reporters.append(StateDataReporter(sys.stdout, args.reportInterval, step=True, potentialEnergy=True, temperature=True, append=reporter_append))  # output energy and temperature during simulation to terminal
+    simulation.reporters.append(StateDataReporter(output_path, args.reportInterval, step=True, potentialEnergy=True, temperature=True, append=reporter_append)) # output energy and temperature to a file
     simulation.reporters.append(PDBReporter(os.path.join(toPath, "movie.pdb"), reportInterval=args.reportInterval))  # output PDBs of simulated structures; appending not supported by openmm
-    simulation.reporters.append(DCDReporter(os.path.join(toPath, "movie.dcd"), reportInterval=args.reportInterval, append=True))  # output PDBs of simulated structures
+    simulation.reporters.append(DCDReporter(os.path.join(toPath, "movie.dcd"), reportInterval=args.reportInterval, append=reporter_append))  # output PDBs of simulated structures
     # simulation.reporters.append(DCDReporter(os.path.join(args.to, "movie.dcd"), 1))  # output PDBs of simulated structures
     # simulation.reporters.append(PDBReporter(os.path.join(args.to, "movie.pdb"), 1))  # output PDBs of simulated structures
     simulation.reporters.append(CheckpointReporter(os.path.join(toPath, args.checkpointFile), args.checkpointInterval))  # save progress during the simulation
