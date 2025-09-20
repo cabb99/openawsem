@@ -108,20 +108,33 @@ def run(args):
         oa.system.removeForce(0)
     oa.addForcesWithDefaultForceGroup(myForces)
 
+    #Define output paths
+    output_path = os.path.join(toPath, "output.log")
+    native_pdb_path = os.path.join(toPath, "native.pdb")
+    movie_pdb_path = os.path.join(toPath, "movie.pdb")
+    movie_dcd_path = os.path.join(toPath, "movie.dcd")
+    time_dat_path = os.path.join(toPath, "time.dat")
+    info_dat_path = os.path.join(toPath, "info.dat")
+    checkpoint_path = os.path.join(toPath, args.checkpointFile)
+
     if args.fromCheckPoint:
         integrator = LangevinIntegrator(Tstart*kelvin, 1/picosecond, args.timeStep*femtoseconds)
         simulation = Simulation(oa.pdb.topology, oa.system, integrator, platform)
         simulation.loadCheckpoint(checkPointPath)
+        reporter_append = True
     else:
         # output the native and the structure after minimization
         integrator = CustomIntegrator(0.001)
         simulation = Simulation(oa.pdb.topology, oa.system, integrator, platform)
         simulation.context.setPositions(oa.pdb.positions)  # set the initial positions of the atoms
-        simulation.reporters.append(PDBReporter(os.path.join(toPath, "native.pdb"), 1)) 
-        simulation.reporters.append(DCDReporter(os.path.join(toPath, "movie.dcd"), 1))
+
+        simulation.reporters.append(PDBReporter(native_pdb_path, 1))
+        simulation.reporters.append(DCDReporter(movie_dcd_path, 1))
+        
         simulation.step(int(1))
         simulation.minimizeEnergy()  # first, minimize the energy to a local minimum to reduce any large forces that might be present
         simulation.step(int(1))
+        reporter_append = False
 
 
         # print("------------------Folding-------------------")
@@ -142,11 +155,65 @@ def run(args):
 
     print("report_interval", args.reportInterval)
     print("num_frames", args.numFrames)
-    simulation.reporters.append(StateDataReporter(sys.stdout, args.reportInterval, step=True, potentialEnergy=True, temperature=True))  # output energy and temperature during simulation
-    simulation.reporters.append(StateDataReporter(os.path.join(toPath, "output.log"), args.reportInterval, step=True, potentialEnergy=True, temperature=True)) # output energy and temperature to a file
-    #simulation.reporters.append(PDBReporter(os.path.join(toPath, "movie.pdb"), reportInterval=args.reportInterval)) # you may uncomment this line after reading https://github.com/cabb99/openawsem/issues/86
-    simulation.reporters.append(DCDReporter(os.path.join(toPath, "movie.dcd"), reportInterval=args.reportInterval, append=True))  # output PDBs of simulated structures
-    simulation.reporters.append(CheckpointReporter(os.path.join(toPath, args.checkpointFile), args.checkpointInterval))  # save progress during the simulation
+
+    # Backup existing files
+    if reporter_append:
+        # Only backup checkpoint if it exists
+        if os.path.exists(checkpoint_path):
+            past_chk_dir = os.path.join(toPath, "past_checkpoints")
+            os.makedirs(past_chk_dir, exist_ok=True)
+            backup_counter = 0
+            for i in range(1000):
+                backup_chk = os.path.join(past_chk_dir, f"checkpoint_used_{backup_counter:03d}.chk")
+                if not os.path.exists(backup_chk):
+                    break
+                if i == 999:
+                    raise RuntimeError("Too many used checkpoint files.")
+                backup_counter += 1
+            # Backup checkpoint
+            print(f"Making backup for used checkpoint file past_checkpoints/checkpoint_used_{backup_counter:03d}.chk")
+            os.system(f"cp {checkpoint_path} {backup_chk}")
+    else:
+        # Ensure backup directory exists
+        backup_dir = os.path.join(toPath, "backup")
+        os.makedirs(backup_dir, exist_ok=True)
+        # Define files to backup: (source_path, backup_prefix, description)
+        files_to_backup = [
+            (output_path, "output", "log file"),
+            (movie_dcd_path, "movie", "dcd file"),
+            (checkpoint_path, "checkpoint", "checkpoint file"),
+            (info_dat_path, "info", "info file"),
+            (time_dat_path, "time", "time file")
+        ]
+        
+        # Find the next available backup number
+        backup_counter = 0
+        for i in range(1000):
+            backup_paths = [os.path.join(backup_dir, f"{prefix}_{backup_counter:03d}.{ext}") 
+                           for _, prefix, _ in files_to_backup 
+                           for ext in (['log'] if prefix == 'output' else 
+                                       ['dcd'] if prefix == 'movie' else 
+                                       ['chk'] if prefix == 'checkpoint' else ['dat'])]
+            if not any(os.path.exists(path) for path in backup_paths):
+                break
+            if i == 999:
+                raise RuntimeError("Too many backup files.")
+            backup_counter += 1
+        
+        # Backup all files
+        for source_path, prefix, description in files_to_backup:
+            if os.path.exists(source_path):
+                ext = 'log' if prefix == 'output' else 'dcd' if prefix == 'movie' else 'chk' if prefix == 'checkpoint' else 'dat'
+                backup_path = os.path.join(backup_dir, f"{prefix}_{backup_counter:03d}.{ext}")
+                print(f"Making backup {description} backup/{prefix}_{backup_counter:03d}.{ext}")
+                os.system(f"cp {source_path} {backup_path}")
+
+    
+    simulation.reporters.append(StateDataReporter(sys.stdout, args.reportInterval, step=True, potentialEnergy=True, temperature=True, append=reporter_append))  # output energy and temperature during simulation to terminal
+    simulation.reporters.append(StateDataReporter(output_path, args.reportInterval, step=True, potentialEnergy=True, temperature=True, append=reporter_append)) # output energy and temperature to a file
+    simulation.reporters.append(PDBReporter(movie_pdb_path, reportInterval=args.reportInterval))  # output PDBs of simulated structures; deprecated (see https://github.com/cabb99/openawsem/issues/86)
+    simulation.reporters.append(DCDReporter(movie_dcd_path, reportInterval=args.reportInterval, append=True))  # output PDBs of simulated structures. DCD is appending to the minimization output if it exists
+    simulation.reporters.append(CheckpointReporter(checkpoint_path, args.checkpointInterval))  # save progress during the simulation
 
     if args.dryRun:
         if args.simulation_mode == 1: # test temperature setting
@@ -187,8 +254,7 @@ def run(args):
     minutes, seconds = divmod(rest, 60)
     print(f"---{hours} hours {minutes} minutes {seconds} seconds ---")
 
-    timeFile = os.path.join(toPath, "time.dat")
-    with open(timeFile, "w") as out:
+    with open(time_dat_path, "w") as out:
         out.write(str(time_taken)+"\n")
 
     # accompany with analysis run
@@ -209,7 +275,7 @@ def run(args):
         additional_cmd += f"--fixed_residue_indices {fixed_residue_indices} "
     if args.fromOpenMMPDB:
         additional_cmd += f"--fromOpenMMPDB "
-    os.system(f"{sys.executable} mm_analyze.py {args.protein} -t {os.path.join(toPath, 'movie.dcd')} --subMode {args.subMode} -f {args.forces} {analysis_fasta} {additional_cmd} -c {chain}")
+    os.system(f"{sys.executable} mm_analyze.py {args.protein} -t {os.path.join(toPath, 'movie.dcd')} --subMode {args.subMode} -f {args.forces} {analysis_fasta} {additional_cmd} -c {chain} --output {info_dat_path}")
 
 
 

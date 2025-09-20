@@ -27,10 +27,10 @@ def read_reference_structure_for_q_calculation_3(oa, pdb_file, reference_chain_n
     for chain in model.get_chains():
         chain_start += count
         count = 0
-        if removeDNAchains and np.alltrue([a.get_resname().strip() in dnaResidues for a in chain.get_residues()]):
+        if removeDNAchains and np.all([a.get_resname().strip() in dnaResidues for a in chain.get_residues()]):
             print(f"chain {chain.id} is a DNA chain. will be ignored for Q evaluation")
             continue
-        elif removeDNAchains and np.alltrue([a.get_resname().strip() not in proteinResidues for a in chain.get_residues()]):
+        elif removeDNAchains and np.all([a.get_resname().strip() not in proteinResidues for a in chain.get_residues()]):
             print(f"chain {chain.id} is a ligand chain. will be ignored for Q evaluation")
             continue
         # print(chain)

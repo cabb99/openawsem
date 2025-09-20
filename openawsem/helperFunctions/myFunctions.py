@@ -538,7 +538,7 @@ def getAllChains(pdbFile, removeDNAchains=True):
     dnaResidues = ['DA', 'DG', 'DC', 'DT', 'DI']
     for c in chains:
         logging.info(f'Processing chain: {c.id}')
-        if removeDNAchains and np.alltrue([a.name in dnaResidues for a in c.residues()]):
+        if removeDNAchains and np.all([a.name in dnaResidues for a in c.residues()]):
             logging.info(f"chain {c.id} is a DNA chain. it will be removed")
             continue
         if c.id in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789':

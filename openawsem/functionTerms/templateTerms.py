@@ -502,7 +502,7 @@ def machine_learning_term(oa, k=1*kilocalorie_per_mole, dataFile="dist.npz", Use
         xnew = np.linspace(min(x), max(x), num=num_of_points, endpoint=True)
         for i in range(n):
             for j in range(i+1, n):
-                if np.alltrue(distspline[i][j] == 0):
+                if np.all(distspline[i][j] == 0):
                     continue
                 y = distspline[i][j]
                 f = interp1d(x, y)
@@ -583,7 +583,7 @@ def machine_learning_dihedral_omega_angle_term(oa, k=1*kilocalorie_per_mole, dat
     xnew = np.linspace(min(x), max(x), num=num_of_points, endpoint=True)
     for i in range(n):
         for j in range(i+1, n):
-            if np.alltrue(spline[i][j] == 0):
+            if np.all(spline[i][j] == 0):
                 continue
             y = spline[i][j]
             f = interp1d(x, y, kind='cubic')
@@ -663,7 +663,7 @@ def machine_learning_dihedral_theta_angle_term(oa, k=1*kilocalorie_per_mole, dat
     xnew = np.linspace(min(x), max(x), num=num_of_points, endpoint=True)
     for i in range(n):
         for j in range(i+1, n):
-            if np.alltrue(spline[i][j] == 0):
+            if np.all(spline[i][j] == 0):
                 continue
             y = spline[i][j]
             f = interp1d(x, y, kind='cubic')
@@ -742,7 +742,7 @@ def machine_learning_dihedral_phi_angle_term(oa, k=1*kilocalorie_per_mole, dataF
     xnew = np.linspace(min(x), max(x), num=num_of_points, endpoint=True)
     for i in range(n):
         for j in range(i+1, n):
-            if np.alltrue(spline[i][j] == 0):
+            if np.all(spline[i][j] == 0):
                 continue
             y = spline[i][j]
             f = interp1d(x, y, kind='cubic')
