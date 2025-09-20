@@ -4,7 +4,6 @@ import sys
 import time
 import argparse
 import importlib.util
-import subprocess
 
 from openawsem import *
 from openawsem.helperFunctions.myFunctions import *
