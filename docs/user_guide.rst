@@ -153,7 +153,7 @@ The transferable interactions have the form:
 ---------------------------------------------
 The HB terms are the most difficult to write down, due to complex logic, edge cases, and varied historical usage.
 
-There are three kinds of HB terms that may be includedin the total HB potential: alpha-helical, beta-sheet, and liquid crystal (P-AP).
+There are three kinds of HB terms that may be included in the total HB potential: alpha-helical, beta-sheet, and liquid crystal (P-AP).
 
 The alpha-helical term enourages residues :math:`i` and :math:`i+4` to be in an alpha-helical configuration, with the strength depending on the statistical propensities of the two residue types to be in a helix. Optionally, the term may also depend on the degree of solvent exposure of the two residues (although this exposure dependence has not been implemented in OpenAWSEM). 
 
