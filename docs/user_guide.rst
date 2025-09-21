@@ -153,7 +153,7 @@ The transferable interactions have the form:
 ---------------------------------------------
 The HB terms are the most difficult to write down, due to complex logic, edge cases, and varied historical usage.
 
-There are three kinds of HB terms that may be included: alpha-helical, beta-sheet, and liquid crystal (P-AP).
+There are three kinds of HB terms that may be includedin the total HB potential: alpha-helical, beta-sheet, and liquid crystal (P-AP).
 
 The alpha-helical term enourages residues :math:`i` and :math:`i+4` to be in an alpha-helical configuration, with the strength depending on the statistical propensities of the two residue types to be in a helix. Optionally, the term may also depend on the degree of solvent exposure of the two residues (although this exposure dependence has not been implemented in OpenAWSEM). 
 
@@ -161,4 +161,26 @@ The beta-sheet term encourages precise beta sheet structures. It has 3 component
 
 The liquid crystal term is similar to the beta sheet term but is more forgiving of slightly incorrect beta-sheet geometry. It has one parallel (P) and one antiparallel (AP) component. The liquid crystal term does not depend on amino acid identities, but is still a pairwise-like cooperative multi-body interaction.
 
-For more information on the hydrogen bonding terms, see `Hbond History <_static/Hbond History.pdf>`.
+For more information on the scientific details of the hydrogen bonding terms, see `Hbond History <_static/Hbond History.pdf>`.
+
+As mentioned above, the original alpha-helical term is not implemented in OpenAWSEM. OpenAWSEM implements a density-independent version of the alpha-helical term and a density-independent and sequence-independent (except for PRO) version as well. The barrier to implementing the density-dependent version in OpenAWSEM is the inability of OpenMM `Force` objects to share information with each other. To evaluate the density-dependent helical term, the `CustomCompoundBondForce` used for the helical term could in principle get the local density `rho` of each residue from the `CustomGBForce` used for the burial and contact terms, but sharing information in this way is not possible. Additionally, since calculating `rho` for any residue requires the positions of all residues in the system, the `CustomCompoundBondForce` cannot compute it, unless its "bonds" contain one atom for each residue in the system. Since the computation time of the `CustomCompoundBondForce` scales poorly with the number of particles in each bond, this approach is computationally prohibitive. The density-independent alpha-helical hydrogen bond term can be added to the model by adding the line `hydrogenBondTerms.helical_term(*args, **kwargs)` to the `Force` list in `forces_setup.py`. Other versions have different function names but can be called in a similar way.
+
+The Beta and liquid crystal (P-AP) terms have both "lammps-awsemmd" and "efficiency-optimized corrected" (EOC) versions implemented. The "lammps-awsemmd" versions use `CustomCompoundBondForce`s and the EOC versions use `CustomHbondForce`s. The lammps-awsemmd terms were written in June 2025 to ensure that the potential from the LAMMPS version of the code could be reproduced in the OpenAWSEM software. Calculations on a variety of systems, found in `test_implementation_of_lammps_hbond_energies.py`, agree with the LAMMPS-computed energies to within 0.01 kcal/mol, with the majority of the disagreement probably coming from the slightly different virtual site (N and H atom) placement in OpenAWSEM vs. the LAMMPS code. It should be noted that the hydrogen bond potential is not equivalent in all versions of the LAMMPS code; I compared to a more recent version, https://github.com/adavtyan/awsemmd/tree/cea754f1208fde6332d4d0f1cae3212bf7e8afbb, that resolves at least one small bug identified in an eariler version.
+
+Initially, only efficiency-optimized versions of the HB potential were implemented in OpenAWSEM. The idea was to decrease the number of particles per bond in the Beta `Forces` to improve efficiency. This was done by removing the `nu` terms. An approximation to the `nu` terms was then added to the P-AP `Force`s (see the OpenAWSEM paper and Hbond History document linked above). The initial implementation had many errors, which were corrected by June 2025. The correctness of the EOC terms is verified in `test_eoc-vs-lammps.py` by evaluating the lammps-awsemmd Beta terms with `nu` turned off (`hydrogenBondTerms.beta_term_1_old(oa, beta_nu_on=False, **kwargs)`, `hydrogenBondTerms.beta_term_2_old(oa, beta_nu_on=False, **kwargs)`, and `hydrogenBondTerms.beta_term_3_old(oa, beta_nu_on=False, **kwargs)`) compared to the EOC Beta terms (`hydrogenBondTerms.beta_term_1(oa,**kwargs)`, `hydrogenBondTerms.beta_term_2(oa,**kwargs)`, and `hydrogenBondTerms.beta_term_3(oa,**kwargs)`) and also evaluating the lammps-awsemmd P-AP terms (`hydrogenBondTerms.pap_term_old(oa,**kwargs)`) compared to the EOC P-AP terms with `nu` turned off (`hydrogenBondTerms.pap_term_1(oa,pap_nu_on=False,**kwargs)` and `hydrogenBondTerms.pap_term_2(oa,pap_nu_on=False,**kwargs)`). 
+
+It is recommended that the Beta and P-AP terms be set up in one of these two ways:
+```
+# efficiency-optimized
+hydrogenBondTerms.beta_term_1(oa,**kwargs),               # equivalent to but faster than hydrogenBondTerms.beta_term_1_old(oa, beta_nu_on=False, **kwargs)
+hydrogenBondTerms.beta_term_2(oa,**kwargs),               # "                                               beta_term_2_old             "
+hydrogenBondTerms.beta_term_3(oa,**kwargs),               # "                                               beta_term_3_old             "
+hydrogenBondTerms.pap_term_1(oa,pap_nu_on=True,**kwargs), # approximate the effects of the beta nu terms by including something similar in the P-AP potential
+hydrogenBondTerms.pap_term_2(oa,pap_nu_on=True,**kwargs), # approximate the effects of the beta nu terms by including something similar in the P-AP potential
+
+# lammps-awsemmd
+hydrogenBondTerms.beta_term_1_old(oa, beta_nu_on=True, **kwargs), # include the nu term that was present in the LAMMPS code
+hydrogenBondTerms.beta_term_2_old(oa, beta_nu_on=True, **kwargs), # include the nu term that was present in the LAMMPS code
+hydrogenBondTerms.beta_term_3_old(oa, beta_nu_on=True, **kwargs), # include the nu term that was present in the LAMMPS code
+hydrogenBondTerms.pap_term_1(oa,pap_nu_on=False,**kwargs), hydrogenBondTerms.pap_term_2(oa,pap_nu_on=False,**kwargs),  # equivalent to but faster than hydrogenBondTerms.pap_term_old(oa, **kwargs)
+```
