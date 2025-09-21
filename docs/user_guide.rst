@@ -149,7 +149,7 @@ The transferable interactions have the form:
    \sigma_{ij}^{prot} &= 1 - \sigma_{ij}^{water}
    \end{aligned}
 
-:math: Hydrogen Bonding Terms
+:math:`Hydrogen Bonding Terms`
 ---------------------------------------------
 The HB terms are the most difficult to write down, due to complex logic, edge cases, and varied historical usage.
 
