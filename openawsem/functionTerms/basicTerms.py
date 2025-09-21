@@ -282,7 +282,161 @@ def rama_ssweight_term(oa, k_rama_ssweight=8.368, num_rama_wells=2, w=[2.0, 2.0]
     ramaSS.setForceGroup(forceGroup)
     return ramaSS
 
+def rama_AM_term_oldparams(oa, memory_angles, memory_weights=None, k_rama=8.368, forceGroup=21):
+    fudge_factor = 1/120
+    if memory_weights is not None:
+        memory_weights *= fudge_factor
 
+    # associative memory ramachandran potential
+    # memory_angles: np.ndarray with shape (oa.nres-2, 2, number memories)
+    #     where indices [:,0,:] describe the phi values of each memory
+    #       and indices [:,1,:] describe the psi values of each memory 
+
+    #TODO: this method is still under construction
+    if oa.fixed_residue_indices:
+        raise NotImplementedError("rama_AM_term is not yet supported for systems where certain absolute residue positions are fixed in space")
+    if len(oa.chain_starts) > 1:
+        raise NotImplementedError("rama_AM_term is not yet supported for systems with more than one chain")
+
+    # check input
+    if np.max(memory_angles) > np.pi:
+        raise ValueError(f"memory_angles should be in radians over the interval (-pi,pi], but found {np.max(memory_angles)}")
+    if np.min(memory_angles) < -np.pi:
+        raise ValueError(f"memory_angles should be in radians over the interval (-pi,pi], but found {np.min(memory_angles)}")
+    if not memory_angles.shape[0] == oa.nres - 2:
+        raise ValueError(f"The size of memory_angles along axis 0 should be {oa.nres-2} (oa.nres-2) but was {memory_angles.shape[0]}.\
+            We expect oa.nres-2 residues because every residue except the first and last in the chain should have memories")
+    # should add check on the shapes of memory_weights, sigma, omega_phi, and omega_psi if we eventually make those 
+    #     independent function parameters instead of hard-coding a particular choice of these values (see below)
+
+    # load/calculate basic parameters
+    num_residues = memory_angles.shape[0] # assign to descriptively named variable to clarify meaning of this axis
+    num_memories = memory_angles.shape[2] # assign to descriptively named variable to clarify meaning of this axis
+    if memory_weights is None:
+        memory_weights = np.ones((num_residues, num_memories))
+    else:
+        if not memory_weights.shape == ((num_residues, num_memories)):
+            raise ValueError(f"memory_weights should have shape (num_residues,num_memories)=={(num_residues, num_memories)}, \
+                               but was {memory_weights.shape}")
+    sigma = np.ones((num_residues, num_memories))*100
+    omega_phi = np.ones((num_residues, num_memories))
+    omega_psi = np.ones((num_residues, num_memories))
+    k_rama *= oa.k_awsem
+
+    """
+    # set up strings representing memory terms
+    phi_term = []
+    psi_term = []
+    for i in range(num_residues):
+        phi_row = []
+        psi_row = []
+        for k in range(num_memories):
+            phi_row.append(f"(cos(dihedral(p1,p2,p3,p4)-{memory_angles[i,0,k]})-1)")
+            psi_row.append(f"(cos(dihedral(p2,p3,p4,p5)-{memory_angles[i,1,k]})-1)")
+        phi_term.append(phi_row)
+        psi_term.append(psi_row)
+
+    # set up the complete rama function
+    rama_function = ""
+    for i in range(num_residues):
+        for k in range(num_memories):
+            rama_function += f"{memory_weights[i,k]}*exp(-{sigma[i,k]}*({omega_phi[i,k]}*{phi_term[i][k]}^2+{omega_psi[i,k]}*{psi_term[i][k]}^2))+"
+    rama_function = f'-{k_rama}*(' + rama_function[:-1] + ")" # cut off trailing "+" from rama_function
+    """
+    # the other rama functions set w to 2 by default, but we expect it here to be normalized to 1,
+    # so we multiply w by 2 in the energy string
+    rama_string_base = "".join([f"2*w(res_index,{mem_index})*exp(-(sigma(res_index,{mem_index})*\
+        (omega_phi(res_index,{mem_index})*(cos(dihedral(p1,p2,p3,p4)-phi_memories(res_index,{mem_index}))-1)^2\
+         +omega_psi(res_index,{mem_index})*(cos(dihedral(p2,p3,p4,p5)-psi_memories(res_index,{mem_index}))-1)^2)))+" for mem_index in range(num_memories)])
+    rama_string_full = f"-2*{k_rama}*({rama_string_base[:-1]})" # removes trailing + from energy expression
+                           # multiplying by 2 because we normally stack the base and bias on top of each other, 
+                           # but this Force is intended to be used alone
+    ramaAM = CustomCompoundBondForce(5, rama_string_full)
+    ramaAM.addPerBondParameter("res_index") # will be used to look up the row holding all of our memories for each residue
+    ramaAM.addTabulatedFunction("w", Discrete2DFunction(num_residues, num_memories, memory_weights.T.flatten()))
+    ramaAM.addTabulatedFunction("sigma", Discrete2DFunction(num_residues, num_memories, sigma.T.flatten()))
+    ramaAM.addTabulatedFunction("omega_phi", Discrete2DFunction(num_residues, num_memories, omega_phi.T.flatten()))
+    ramaAM.addTabulatedFunction("omega_psi", Discrete2DFunction(num_residues, num_memories, omega_psi.T.flatten()))
+    ramaAM.addTabulatedFunction("phi_memories", Discrete2DFunction(num_residues, num_memories, memory_angles[:,0,:].T.flatten()))
+    ramaAM.addTabulatedFunction("psi_memories", Discrete2DFunction(num_residues, num_memories, memory_angles[:,1,:].T.flatten()))
+    for res_index in range(num_residues):
+        # we add 1 to res_index for the purposes of indexing atoms in our structure because num_residues begins counting
+        # from the second residue in the structure (because the first doesn't get a rama bias)
+        ramaAM.addBond([oa.c[(1+res_index)-1], oa.n[1+res_index], oa.ca[1+res_index], oa.c[1+res_index], oa.n[1+res_index+1]], [res_index])
+    if oa.periodic_box:
+        ramaAM.setUsesPeriodicBoundaryConditions(True)
+        print('\nrama_ssweight_term is periodic') 
+    ramaAM.setForceGroup(forceGroup)
+    
+    return ramaAM
+
+def rama_AM_term(oa, memory_angles, memory_weights=None, k_rama=4.184, forceGroup=21):
+    memory_weights[1:,:] *= 0
+    fudge_factor = 1/20
+    if memory_weights is not None:
+        memory_weights *= fudge_factor
+
+    # associative memory ramachandran potential
+    # memory_angles: np.ndarray with shape (oa.nres-2, 2, number memories)
+    #     where indices [:,0,:] describe the phi values of each memory
+    #       and indices [:,1,:] describe the psi values of each memory 
+
+    #TODO: this method is still under construction
+    if oa.fixed_residue_indices:
+        raise NotImplementedError("rama_AM_term is not yet supported for systems where certain absolute residue positions are fixed in space")
+    if len(oa.chain_starts) > 1:
+        raise NotImplementedError("rama_AM_term is not yet supported for systems with more than one chain")
+
+    # check input
+    if np.max(memory_angles) > np.pi:
+        raise ValueError(f"memory_angles should be in radians over the interval (-pi,pi], but found {np.max(memory_angles)}")
+    if np.min(memory_angles) < -np.pi:
+        raise ValueError(f"memory_angles should be in radians over the interval (-pi,pi], but found {np.min(memory_angles)}")
+    if not memory_angles.shape[0] == oa.nres - 2:
+        raise ValueError(f"The size of memory_angles along axis 0 should be {oa.nres-2} (oa.nres-2) but was {memory_angles.shape[0]}.\
+            We expect oa.nres-2 residues because every residue except the first and last in the chain should have memories")
+    # should add check on the shapes of memory_weights, sigma, omega_phi, and omega_psi if we eventually make those 
+    #     independent function parameters instead of hard-coding a particular choice of these values (see below)
+
+    # load/calculate basic parameters
+    num_residues = memory_angles.shape[0] # assign to descriptively named variable to clarify meaning of this axis
+    num_memories = memory_angles.shape[2] # assign to descriptively named variable to clarify meaning of this axis
+    if memory_weights is None:
+        memory_weights = np.ones((num_residues, num_memories))
+    else:
+        if not memory_weights.shape == ((num_residues, num_memories)):
+            raise ValueError(f"memory_weights should have shape (num_residues,num_memories)=={(num_residues, num_memories)}, \
+                               but was {memory_weights.shape}")
+    sigma = np.ones((num_residues, num_memories))*500#5000
+    omega_phi = np.ones((num_residues, num_memories))
+    omega_psi = np.ones((num_residues, num_memories))
+    k_rama *= oa.k_awsem
+
+    # set up potential
+    rama_string_base = "".join([f"w(res_index,{mem_index})*exp(-(sigma(res_index,{mem_index})*\
+        (omega_phi(res_index,{mem_index})*(cos(dihedral(p1,p2,p3,p4)-phi_memories(res_index,{mem_index}))-1)^2\
+         +omega_psi(res_index,{mem_index})*(cos(dihedral(p2,p3,p4,p5)-psi_memories(res_index,{mem_index}))-1)^2)))+" for mem_index in range(num_memories)])
+    rama_string_full = f"-{k_rama}*({rama_string_base[:-1]})" # removes trailing + from energy expression
+                           # multiplying by 2 because we normally stack the base and bias on top of each other, 
+                           # but this Force is intended to be used alone
+    ramaAM = CustomCompoundBondForce(5, rama_string_full)
+    ramaAM.addPerBondParameter("res_index") # will be used to look up the row holding all of our memories for each residue
+    ramaAM.addTabulatedFunction("w", Discrete2DFunction(num_residues, num_memories, memory_weights.T.flatten()))
+    ramaAM.addTabulatedFunction("sigma", Discrete2DFunction(num_residues, num_memories, sigma.T.flatten()))
+    ramaAM.addTabulatedFunction("omega_phi", Discrete2DFunction(num_residues, num_memories, omega_phi.T.flatten()))
+    ramaAM.addTabulatedFunction("omega_psi", Discrete2DFunction(num_residues, num_memories, omega_psi.T.flatten()))
+    ramaAM.addTabulatedFunction("phi_memories", Discrete2DFunction(num_residues, num_memories, memory_angles[:,0,:].T.flatten()))
+    ramaAM.addTabulatedFunction("psi_memories", Discrete2DFunction(num_residues, num_memories, memory_angles[:,1,:].T.flatten()))
+    for res_index in range(num_residues):
+        # we add 1 to res_index for the purposes of indexing atoms in our structure because num_residues begins counting
+        # from the second residue in the structure (because the first doesn't get a rama bias)
+        ramaAM.addBond([oa.c[(1+res_index)-1], oa.n[1+res_index], oa.ca[1+res_index], oa.c[1+res_index], oa.n[1+res_index+1]], [res_index])
+    if oa.periodic_box:
+        ramaAM.setUsesPeriodicBoundaryConditions(True)
+        print('\nrama_ssweight_term is periodic') 
+    ramaAM.setForceGroup(forceGroup)
+    
+    return ramaAM
 
 def side_chain_term(oa, k=1*kilocalorie_per_mole, gmmFileFolder="/Users/weilu/opt/parameters/side_chain", forceGroup=25):
     # add chi forces
