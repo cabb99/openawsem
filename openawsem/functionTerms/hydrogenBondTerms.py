@@ -10,6 +10,7 @@ import numpy as np
 from pathlib import Path
 import openawsem
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # GLOBALS
 
@@ -815,7 +816,34 @@ def _beta_lammps_awsemmd(oa, term_number, ssweight_file, forceGroup, k_beta, bet
     Beta.setForceGroup(forceGroup)
     return Beta
 
-def _beta_efficiency_optimized(oa, term_number, ssweight_file, forceGroup, k_beta):
+def _inner_loop_eoc(term_number,i,nres,chain_starts,chain_ends,rama_biases,
+                      p_par, p_anti, p_antihb, p_antinhb, p_parhb, a):
+    """
+    Helper function for _beta_efficiency_optimized
+    """
+    lambda_row = np.zeros(nres)
+    for j in range(nres):
+        if 4<=abs(i-j)<18 and inSameChain(i,j,chain_starts,chain_ends) and not (rama_biases[i][1] and rama_biases[j][1]): # in same chain, seqsep<18, not both beta
+            lambda_row[j] = 0
+        else:
+            if term_number == 1:
+                lambda_row[j] = get_lambda_by_index(i, j, 0, chain_starts, chain_ends)
+            elif term_number == 2:
+                if isChainEdge(i,chain_starts,chain_ends,n=1) or isChainEdge(j,chain_starts,chain_ends,n=1):
+                    continue # i+1 or i-1 or j+1 or j-1 don't exist so we won't be able to get a[i-1] and/or a[i+1] and/or a[j-1] and/or a[j+1]
+                                # such groups end up not being added to the potential anyway (see below), but this is needed to get the code to run
+                lambda_row[j] = get_Lambda_2(i, j, p_par, p_anti, p_antihb, p_antinhb, p_parhb, a, chain_starts, chain_ends)
+            elif term_number == 3:
+                if isChainEnd(i,chain_ends,n=1):
+                    continue # i+1 doesn't exist so we won't be able to get a[i+1]
+                                # such groups end up not being added to the potential anyway (see below), but this is needed to get the code to run
+                lambda_row[j] = get_Lambda_3(i, j, p_par, p_anti, p_antihb, p_antinhb, p_parhb, a, chain_starts, chain_ends)
+            else:
+                raise ValueError(f"term_number must be 1, 2, or 3, but was {term_number}")
+    return i, lambda_row
+
+def _beta_efficiency_optimized(oa, term_number, ssweight_file, forceGroup, k_beta, parallel=True): 
+    # parallel argument would only be changed for debugging and dev purposes so I'm not going to add it to the main API
     # set constants
     k_beta = convert_units(k_beta) * oa.k_awsem
     nres, n, h, ca, o, res_type = oa.nres, oa.n, oa.h, oa.ca, oa.o, oa.res_type
@@ -838,25 +866,17 @@ def _beta_efficiency_optimized(oa, term_number, ssweight_file, forceGroup, k_bet
     #
     # calculate Lambda function depending on term number and zero out for short intrachain sequence separation if not both beta
     lambda_term_number = np.zeros((nres, nres))
-    for i in range(nres):
-        for j in range(nres):
-            if 4<=abs(i-j)<18 and inSameChain(i,j,oa.chain_starts,oa.chain_ends) and not (rama_biases[i][1] and rama_biases[j][1]): # in same chain, seqsep<18, not both beta
-                lambda_term_number[i][j] = 0
-            else:
-                if term_number == 1:
-                    lambda_term_number[i][j] = get_lambda_by_index(i, j, 0, oa.chain_starts,oa.chain_ends)
-                elif term_number == 2:
-                    if isChainEdge(i,oa.chain_starts,oa.chain_ends,n=1) or isChainEdge(j,oa.chain_starts,oa.chain_ends,n=1):
-                        continue # i+1 or i-1 or j+1 or j-1 don't exist so we won't be able to get a[i-1] and/or a[i+1] and/or a[j-1] and/or a[j+1]
-                                 # such groups end up not being added to the potential anyway (see below), but this is needed to get the code to run
-                    lambda_term_number[i][j] = get_Lambda_2(i, j, p_par, p_anti, p_antihb, p_antinhb, p_parhb, a, oa.chain_starts, oa.chain_ends)
-                elif term_number == 3:
-                    if isChainEnd(i,oa.chain_ends,n=1):
-                        continue # i+1 doesn't exist so we won't be able to get a[i+1]
-                                 # such groups end up not being added to the potential anyway (see below), but this is needed to get the code to run
-                    lambda_term_number[i][j] = get_Lambda_3(i, j, p_par, p_anti, p_antihb, p_antinhb, p_parhb, a, oa.chain_starts, oa.chain_ends)
-                else:
-                    raise ValueError(f"term_number must be 1, 2, or 3, but was {term_number}")
+    if parallel:
+        with ThreadPoolExecutor() as executor:
+            futures = (executor.submit(_inner_loop_eoc, term_number, i, nres, oa.chain_starts, oa.chain_ends, rama_biases,
+                                                         p_par, p_anti, p_antihb, p_antinhb, p_parhb, a) for i in range(nres))
+            for future in as_completed(futures):
+                i, lambda_row = future.result()
+                lambda_term_number[i, :] = lambda_row
+    else:
+        for i in range(nres):
+            _, lambda_term_number[i,:] = _inner_loop_eoc(term_number, i, nres, oa.chain_starts, oa.chain_ends, rama_biases,
+                                                            p_par, p_anti, p_antihb, p_antinhb, p_parhb, a)
     #
     # define energy functions
     theta_ij =   f"exp(-(r_Oi_Nj-{r_ON})^2/(2*{sigma_NO}^2)-(r_Oi_Hj-{r_OH})^2/(2*{sigma_HO}^2))"
