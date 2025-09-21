@@ -149,8 +149,20 @@ The transferable interactions have the form:
    \sigma_{ij}^{prot} &= 1 - \sigma_{ij}^{water}
    \end{aligned}
 
-:math:`\beta`-hydrogen bonding and P-AP terms
+:math: Hydrogen Bonding Terms
 ---------------------------------------------
+The HB terms are the most difficult to write down, due to complex logic, edge cases, and varied historical usage.
+
+There are three kinds of HB terms that may be included: alpha-helical, beta-sheet, and liquid crystal (P-AP).
+
+The alpha-helical term enourages residues :math:`i` and :math:`i+4` to be in an alpha-helical configuration, with the strength depending on the statistical propensities of the two residue types to be in a helix. Optionally, the term may also depend on the degree of solvent exposure of the two residues (although this exposure dependence has not been implemented in OpenAWSEM). 
+
+The beta-sheet term encourages precise beta sheet structures. It has 3 components. The first component acts pairwise and treats each amino acid type identically. The second component considers the positions of each pair of residues and some of their neighbors to determine whether the protein is locally in an antiparallel beta-sheet configuration. The third component considers the positions of each pair of residues and one of their neighbors to determine whether the protein is locally in a parallel beta-sheet configuration. The second and third components of the beta sheet term can be thought of as "pairwise-like," similar to the contact term: they can be written as a sum over pairs, but the energy of each interacting pair depends on the surrounding residues. The strengths of these cooperative antiparallel and parallel interactions depend on the identities of the amino acids. 
+
+The liquid crystal term is similar to the beta sheet term but is more forgiving of slightly incorrect beta-sheet geometry. It has one parallel (P) and one antiparallel (AP) component. The liquid crystal term does not depend on amino acid identities, but is still a pairwise-like cooperative multi-body interaction.
+
+For more information on the hydrogen bonding terms, see :ref:`hbond-history`.
+
 
 We made some modification of these terms in order to make more efficient implementation of the force fields.
 
