@@ -161,33 +161,4 @@ The beta-sheet term encourages precise beta sheet structures. It has 3 component
 
 The liquid crystal term is similar to the beta sheet term but is more forgiving of slightly incorrect beta-sheet geometry. It has one parallel (P) and one antiparallel (AP) component. The liquid crystal term does not depend on amino acid identities, but is still a pairwise-like cooperative multi-body interaction.
 
-For more information on the hydrogen bonding terms, see :ref:`hbond-history`.
-
-
-We made some modification of these terms in order to make more efficient implementation of the force fields.
-
-.. math::
-
-   \begin{aligned}
-   \theta_{i,j} = exp(-\frac{(r_{O_i N_j}-r_{ON})^2}{2\sigma_{ON}^2}-\frac{(r_{O_iH_j}-r_{OH})^2}{2 \sigma_{OH}^2}) \\
-   \theta_{j,i} = exp(-\frac{(r_{O_j N_i}-r_{ON})^2}{2\sigma_{ON}^2}-\frac{(r_{O_jH_i}-r_{OH})^2}{2 \sigma_{OH}^2} )\\
-   \theta_{j,i+2} = exp(-\frac{(r_{O_j N_{i+2}}-r_{ON})^2}{2\sigma_{ON}^2}-\frac{(r_{O_jH_{i+2}}-r_{OH})^2}{2 \sigma_{OH}^2}) \\
-   V1_{ij} = \lambda_1(i,j)\theta_{i,j}\\
-   V2_{ij} =\lambda_2(i,j)\theta_{i,j}\theta_{j,i}\\
-   V3_{ij} = \lambda_3(i,j)\theta_{i,j}\theta_{j,i+2}  \\
-   V_{ij} =V1_{ij} + V2_{ij} + V3_{ij}\\
-   V_{beta} = -k_{beta} \sum_{ij} V_{ij}
-   \end{aligned}
-
-In previous the LAMMPS implementation, :math:`V_{beta} = -k_{beta} \sum_{ij} V_{ij} v_i v_j`, the additional term :math:`v_i v_j` was used to ensure that the hydrogen bonds do not occur within a span of 5 residues that is shorter than 12\ :math:`\AA`. Now this constraint is incorporated onto the pap term. The :math:`V_{beta}` defined here can be fit into the "CustomHbondForce" template. Since for :math:`V2_{ij}`, we can define :math:`O_i, N_i, H_i`, the oxygen, hydrogen and nitrogen of residue i as the donor, and :math:`N_j, H_j, O_j` as the acceptor. We could have implemented the exact same version as the LAMMPS version using "CustomCompoundBondForce", but computing bonded forces is much slower than computing non-bonded forces like "CustomHbondForce". When two residues are far apart, computing their interaction is unnecessary.
-
-.. math::
-
-   \begin{aligned}
-   v_{i} = \frac{1}{2}(1+\tanh({\mu_1}*(r_{ca_{i} ca_{i+4}} -rc_{HB}))) \\
-   \theta^1_{i,j} =  \frac{1}{2}(1+\tanh({\eta_{pap}}*(r_0 - r_{ca_{i} n_{j}}))) \\
-   \theta^2_{i,j} =  \frac{1}{2}(1+\tanh({\eta_{pap}}*(r_0 - r_{ca_{i+4} n_{j+4}}))) \\
-   \theta^3_{i,j} =  \frac{1}{2}(1+\tanh({\eta_{pap}}*(r_0 - r_{ca_{i+4} n_{j-4}}))) \\
-   V_{i,j} = (\gamma_1(i, j)+\gamma_2(i,j) \theta^1_{i,j} \theta^2_{i,j} + \gamma_3{i,j} \theta^3_{i,j})v_i\\
-   V_{pap} = \sum_{i,j} k_{pap} V_{i,j}
-   \end{aligned}
+For more information on the hydrogen bonding terms, see `Hbond History <_static/Hbond History.pdf>`.
