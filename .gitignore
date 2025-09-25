@@ -125,6 +125,7 @@ Gros/*
 pdb_seqres.txt
 notExistPDBsList
 openawsem/data/Gros/*
+openawsem/parameters/rama
 
 # =========================
 # Examples and Deprecated

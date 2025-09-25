@@ -282,7 +282,35 @@ def rama_ssweight_term(oa, k_rama_ssweight=8.368, num_rama_wells=2, w=[2.0, 2.0]
     ramaSS.setForceGroup(forceGroup)
     return ramaSS
 
-
+def AM_rama(oa, k_rama=4.184, forceGroup=21, map_dir=f'{os.environ.get("OPENAWSEM_LOCATION")}/parameters/rama'):
+    #TODO: this method is still under construction
+    if oa.fixed_residue_indices:
+        raise NotImplementedError("AM_rama is not yet supported for systems where certain absolute residue positions are fixed in space")
+    if len(oa.chain_starts) > 1:
+        raise NotImplementedError("AM_rama is not yet supported for systems with more than one chain")
+    # initialize Force
+    ramaAM = CMAPTorsionForce()
+    # add map and dihedrals to the Force
+    assert len(oa.seq) == oa.nres
+    for res_index in range(1,oa.nres-1):
+        # one map for each set of 3 -- could be reduced for reduntant sequences
+        # TODO: reuse previously configured Map for second, third, etc. occurrences of each 3-letter motif
+        # If we have a super diverse/long sequence, this will still require too much RAM/vRAM, but I think
+        # we can get away with this strategy for most systems
+        ramaAM.addMap(90,k_rama*np.load(f'{map_dir}/{oa.seq[res_index-1:res_index+2]}.npy')) # column-major flattened 90x90 grid
+        three_segment = oa.seq[res_index-1:res_index+2]
+        phi1 = oa.c[res_index-1]
+        phi2 = psi1 = oa.n[res_index]
+        phi3 = psi2 = oa.ca[res_index]
+        phi4 = psi3 = oa.c[res_index]
+        psi4 = oa.n[res_index+1]
+        ramaAM.addTorsion(res_index-1, phi1, phi2, phi3, phi4, psi1, psi2, psi3, psi4) 
+    # finish Force setup
+    if oa.periodic_box:
+        ramaAM.setUsesPeriodicBoundaryConditions(True)
+        print('\nAM_rama is periodic') 
+    ramaAM.setForceGroup(forceGroup)
+    return ramaAM
 
 def side_chain_term(oa, k=1*kilocalorie_per_mole, gmmFileFolder="/Users/weilu/opt/parameters/side_chain", forceGroup=25):
     # add chi forces
