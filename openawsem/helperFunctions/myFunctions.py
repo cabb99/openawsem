@@ -167,7 +167,7 @@ def readPMF_basic(pre):
                 raise ValueError('Not expected to see more than one or none')
             else:
                 temp = temp[0]
-            data = pd.read_table(location, skiprows=2, sep='\s+', names=names).assign(upOrDown=upOrDown, change=change, temp=temp, perturbation=perturbation_table[perturbation])
+            data = pd.read_table(location, skiprows=2, sep=r'\s+', names=names).assign(upOrDown=upOrDown, change=change, temp=temp, perturbation=perturbation_table[perturbation])
             all_pmf_list.append(data)
 
     return pd.concat(all_pmf_list).dropna().reset_index()
@@ -237,7 +237,7 @@ def readPMF(pre, is2d=False, force_list=["0.0", "0.1", "0.2"]):
                 raise ValueError('Not expected to see more than one or none')
             else:
                 temp = temp[0]
-            data = pd.read_table(location, skiprows=2, sep='\s+', names=names).assign(upOrDown=upOrDown, change=change, force=force, temp=temp, perturbation=perturbation_table[perturbation])
+            data = pd.read_table(location, skiprows=2, sep=r'\s+', names=names).assign(upOrDown=upOrDown, change=change, force=force, temp=temp, perturbation=perturbation_table[perturbation])
             all_pmf_list.append(data)
 
     return pd.concat(all_pmf_list).dropna().reset_index()
