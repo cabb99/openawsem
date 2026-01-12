@@ -151,6 +151,8 @@ class BaseError(Exception):
 class Protein(object):
     def __init__(self, atoms, sequence, k_awsem=1):
         self.atoms = atoms
+        self._periodic_box = None
+        self._fixed_residue_indices = []
 
         #Include real residue name in atoms
         atoms = self.atoms.copy()
@@ -191,7 +193,6 @@ class Protein(object):
         self.bonds = self._setup_bonds()
         self.seq = sequence
         self.resi = pd.merge(self.atoms, self.protein_data, how='left').resID.fillna(-1).astype(int).tolist()
-        pass
 
     def _setup_bonds(self):
         bonds = []
@@ -228,6 +229,29 @@ class Protein(object):
                                                                        0.44365, 0.23520, 0.32115)
                 # print("Virtual", c[i])
                 system.setVirtualSite(self.c[i], c_virtual_site)
+
+    @property
+    def periodic_box(self):
+        """Periodic boundary box dimensions (x, y, z) in nanometers, or None for non-periodic."""
+        return self._periodic_box
+
+    @periodic_box.setter
+    def periodic_box(self, value):
+        if value is not None and (not hasattr(value, '__len__') or len(value) != 3):
+            raise ValueError("periodic_box must be a 3-element sequence (x, y, z) or None")
+        self._periodic_box = value
+
+    @property
+    def fixed_residue_indices(self):
+        """List of residue indices to be fixed (frozen) during simulation."""
+        return self._fixed_residue_indices
+
+    @fixed_residue_indices.setter
+    def fixed_residue_indices(self, value):
+        if value is None:
+            self._fixed_residue_indices = []
+        else:
+            self._fixed_residue_indices = list(value)
 
     @classmethod
     def fromPDB(cls, pdb, pdbout='CoarseProtein.pdb'):

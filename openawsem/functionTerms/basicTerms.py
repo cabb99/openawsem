@@ -112,7 +112,6 @@ def excl_term(oa, k_excl=8368, r_excl=0.35, excludeCB=False, forceGroup=20):
     else:
         excl.setNonbondedMethod(excl.CutoffNonPeriodic)
 
-    pos = oa.pdb.positions
     for i in range(oa.natoms):
         excl.addParticle()
     excl.addInteractionGroup(oa.ca, oa.ca)
