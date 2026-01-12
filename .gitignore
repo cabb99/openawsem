@@ -1,3 +1,7 @@
+# =========================
+# Operating System Files
+# =========================
+
 # Windows image file caches
 Thumbs.db
 ehthumbs.db
@@ -17,13 +21,7 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
-# =========================
-# Operating System Files
-# =========================
-
 # OSX
-# =========================
-
 .DS_Store
 .AppleDouble
 .LSOverride
@@ -46,17 +44,139 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
-# ipython
-.ipynb_checkpoints
-__pycache__
+# =========================
+# Editor and IDE Files
+# =========================
+.idea
+.vscode
+*.iml
+*.iws
+*.ipr
+*.sublime-workspace
+*.sublime-project
+*.swp
 
-# test Folder
+# =========================
+# Python Bytecode, C extensions, and Build Artifacts
+# =========================
+__pycache__/
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+*.dirty
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# In-tree generated files
+*/_version.py
+
+# =========================
+# Environment and Virtualenv
+# =========================
+.env
+.venv
+venv/
+ENV/
+
+# pyenv
+.python-version
+
+# =========================
+# Jupyter and IPython
+# =========================
+.ipynb_checkpoints
+
+# =========================
+# Test, Scratch, and Local Folders
+# =========================
 test
 _local
-*.bak
+scratch
+jupyter
 
+# =========================
+# Project Data and Artifacts
+# =========================
 PDBs
 Indices
-Gros
+Gros/*
 pdb_seqres.txt
-notExistPDBsList.vscode/
+notExistPDBsList
+openawsem/data/Gros/*
+openawsem/parameters/rama
+
+# =========================
+# Examples and Deprecated
+# =========================
+examples/*
+scratch
+jupyter
+build
+*_deprecated*
+
+# =========================
+# Coverage, Testing, and Reports
+# =========================
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+/tests/CI_files
+
+# =========================
+# Translations
+# =========================
+*.mo
+*.pot
+
+# =========================
+# Django, Flask, Scrapy, Sphinx, PyBuilder
+# =========================
+*.log
+local_settings.py
+instance/
+.webassets-cache
+.scrapy
+docs/_build/
+target/
+
+# =========================
+# Miscellaneous
+# =========================
+site
+.mypy_cache/
+celerybeat-schedule
+*.sage.py
+.ropeproject
+.spyderproject
+.spyproject
+*profraw
+.vscode/

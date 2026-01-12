@@ -1,0 +1,8 @@
+biopython
+matplotlib
+numpy
+pandas
+openmm
+pdbfixer
+mdtraj
+requests
