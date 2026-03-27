@@ -183,3 +183,133 @@ It is recommended that the Beta and P-AP terms be set up in one of these two way
    hydrogenBondTerms.beta_term_2_old(oa, beta_nu_on=True, **kwargs), # include the nu term that was present in the LAMMPS code
    hydrogenBondTerms.beta_term_3_old(oa, beta_nu_on=True, **kwargs), # include the nu term that was present in the LAMMPS code
    hydrogenBondTerms.pap_term_1(oa,pap_nu_on=False,**kwargs), hydrogenBondTerms.pap_term_2(oa,pap_nu_on=False,**kwargs),  # equivalent to but faster than hydrogenBondTerms.pap_term_old(oa, **kwargs)
+
+
+Post-Processing Tools
+---------------------
+
+OpenAWSEM provides command-line tools for post-processing coarse-grained simulation output.
+
+Fix Amino Acid Names
+~~~~~~~~~~~~~~~~~~~~
+
+During AWSEM simulations, residue names are represented by placeholder codes
+(``NGP``, ``IGL``, ``IPR``) that need to be converted back to standard amino acid
+names for analysis and visualization. The ``fix_aminoacids`` command performs this
+conversion using a sequence file.
+
+.. code-block:: bash
+
+   awsem fix_aminoacids input.pdb -f protein.fasta -o output.pdb
+
+.. list-table::
+   :widths: 25 75
+   :header-rows: 1
+
+   * - Argument
+     - Description
+   * - ``input``
+     - Input PDB file with AWSEM placeholder residue names.
+   * - ``-f``, ``--fasta``
+     - Sequence file in FASTA format (default: ``crystal_structure.fasta``).
+   * - ``-o``, ``--output``
+     - Output PDB file (default: ``lastFrame.pdb``).
+   * - ``--start``
+     - Start frame for multi-model PDBs (default: 0).
+   * - ``--end``
+     - End frame (default: last frame).
+   * - ``--stride``
+     - Frame stride (default: 1).
+
+Example:
+
+.. code-block:: bash
+
+   # Convert a trajectory with standard defaults
+   awsem fix_aminoacids movie.pdb -f crystal_structure.fasta -o movie_standard.pdb
+
+   # Extract every 10th frame from a range
+   awsem fix_aminoacids movie.pdb -f protein.seq --start 100 --end 500 --stride 10
+
+The FASTA file should use the format produced by ``awsem_create``:
+
+.. code-block:: text
+
+   >CRYSTAL_STRUCTURE:A
+   MKQLEDKVEELLSKN...
+   >CRYSTAL_STRUCTURE:B
+   ATGCATGC...
+
+
+All-Atom Reconstruction
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``reconstruct`` command converts AWSEM (protein) and 3SPN2 (DNA)
+coarse-grained structures into all-atom models. The pipeline:
+
+1. Optionally fixes AWSEM residue names using a sequence file.
+2. Extracts protein and DNA chains from the CG structure.
+3. Reconstructs protein side chains with `SCWRL4 <http://dunbrack.fccc.edu/SCWRL4.php>`_.
+4. Reconstructs all-atom DNA with DNAbackmap (from the `GENESIS <https://www.r-ccs.riken.jp/labs/cbrt/>`_ package).
+5. Merges the reconstructed protein and DNA.
+6. Fixes missing atoms and minimizes the structure with OpenMM.
+
+For protein-only structures, DNAbackmap is not required.
+
+.. code-block:: bash
+
+   awsem reconstruct input.pdb [options]
+
+.. list-table::
+   :widths: 25 75
+   :header-rows: 1
+
+   * - Argument
+     - Description
+   * - ``input``
+     - Input coarse-grained PDB file.
+   * - ``-o``, ``--output``
+     - Output all-atom PDB file (default: ``<input>_allatom.pdb``).
+   * - ``-f``, ``--seq``
+     - Sequence file (FASTA) for residue name fixing before reconstruction.
+   * - ``--steps``
+     - Number of energy minimization steps (default: 5000).
+   * - ``--no-freeze-backbone``
+     - Allow backbone atoms to move during minimization.
+   * - ``--scwrl PATH``
+     - Path to SCWRL4 executable (or set ``$SCWRL4_PATH``).
+   * - ``--dnabackmap PATH``
+     - Path to DNAbackmap executable (or set ``$DNABACKMAP_PATH``).
+
+**Requirements:**
+
+- **SCWRL4** (required): Protein side-chain prediction. Download from http://dunbrack.fccc.edu/SCWRL4.php.
+- **DNAbackmap** (required for DNA): All-atom DNA reconstruction. Part of the GENESIS molecular dynamics package.
+- **OpenMM + PDBFixer**: Energy minimization. Install with ``pip install openmm pdbfixer``.
+
+Tool paths can be set via CLI arguments or environment variables:
+
+.. code-block:: bash
+
+   export SCWRL4_PATH=/opt/scwrl4/Scwrl4
+   export DNABACKMAP_PATH=/opt/genesis/bin/DNAbackmap
+
+Examples:
+
+.. code-block:: bash
+
+   # Protein + DNA reconstruction
+   awsem reconstruct simulation.pdb -f protein.seq \
+       --scwrl /path/to/Scwrl4 --dnabackmap /path/to/DNAbackmap
+
+   # Protein only (DNAbackmap not needed)
+   awsem reconstruct protein.pdb -f protein.seq --scwrl /path/to/Scwrl4
+
+   # More minimization steps, unfrozen backbone
+   awsem reconstruct model.pdb --steps 10000 --no-freeze-backbone
+
+.. note::
+
+   SCWRL4 is required for reconstruction. The command will exit with an error if
+   SCWRL4 is not found. DNAbackmap is only required when DNA residues are present
+   in the input structure.

@@ -247,7 +247,7 @@ class TestIntegration:
     def test_protein_only_does_not_call_dnabackmap(self, tmp_path):
         """Protein-only input should never invoke DNAbackmap.
         
-        This is critical: users without DNAbackmap installed should still
+        Users without DNAbackmap installed should still
         be able to reconstruct protein-only AWSEM structures.
         """
         from openawsem.helperFunctions.reconstruct import (
@@ -264,24 +264,24 @@ class TestIntegration:
         n_dna = extract_dna(protein_only, tmp_path / 'dna_check.pdb')
         assert n_dna == 0, "Test file should have no DNA"
         
-        # Mock run_dnabackmap to track if it's called
-        with patch('openawsem.helperFunctions.reconstruct.run_dnabackmap') as mock_dnabackmap:
-            with patch('openawsem.helperFunctions.reconstruct.run_scwrl') as mock_scwrl:
-                # Make SCWRL4 "succeed" by copying input to output
-                def fake_scwrl(pdb_in, pdb_out, scwrl_path=None):
-                    import shutil
-                    shutil.copy(pdb_in, pdb_out)
-                    return True
-                mock_scwrl.side_effect = fake_scwrl
-                
-                with patch('openawsem.helperFunctions.reconstruct.fix_minimize') as mock_minimize:
-                    def fake_minimize(pdb_in, pdb_out, steps=5000, freeze_backbone=True):
+        # Mock check_tools so SCWRL4 is "available", and track tool calls
+        with patch('openawsem.helperFunctions.reconstruct.check_tools', return_value={'scwrl': True, 'dnabackmap': False}):
+            with patch('openawsem.helperFunctions.reconstruct.run_dnabackmap') as mock_dnabackmap:
+                with patch('openawsem.helperFunctions.reconstruct.run_scwrl') as mock_scwrl:
+                    def fake_scwrl(pdb_in, pdb_out, scwrl_path=None):
                         import shutil
                         shutil.copy(pdb_in, pdb_out)
                         return True
-                    mock_minimize.side_effect = fake_minimize
+                    mock_scwrl.side_effect = fake_scwrl
                     
-                    out = reconstruct(protein_only, tmp_path / 'output.pdb')
+                    with patch('openawsem.helperFunctions.reconstruct.fix_minimize') as mock_minimize:
+                        def fake_minimize(pdb_in, pdb_out, steps=5000, freeze_backbone=True):
+                            import shutil
+                            shutil.copy(pdb_in, pdb_out)
+                            return True
+                        mock_minimize.side_effect = fake_minimize
+                        
+                        out = reconstruct(protein_only, tmp_path / 'output.pdb')
         
         # DNAbackmap should NEVER be called for protein-only input
         mock_dnabackmap.assert_not_called()
@@ -291,3 +291,15 @@ class TestIntegration:
         
         # Output should exist
         assert out.exists()
+
+    def test_missing_scwrl4_raises_error(self, tmp_path):
+        """Reconstruct must fail with clear error if SCWRL4 is not found."""
+        from openawsem.helperFunctions.reconstruct import extract_protein, reconstruct
+        
+        pdb_in = data_path / 'bp40_frame5000_awsem.pdb'
+        protein_only = tmp_path / 'protein_only.pdb'
+        extract_protein(pdb_in, protein_only)
+        
+        with patch('openawsem.helperFunctions.reconstruct.check_tools', return_value={'scwrl': False, 'dnabackmap': False}):
+            with pytest.raises(RuntimeError, match="SCWRL4 is required"):
+                reconstruct(protein_only, tmp_path / 'output.pdb')

@@ -441,29 +441,42 @@ def reconstruct(input_pdb: str | PathLike, output_pdb: str | PathLike | None = N
         # Check which tools are available
         tools = check_tools(scwrl_path=scwrl_path, dnabackmap_path=dnabackmap_path)
         
+        # Validate required tools
+        scwrl_exe = scwrl_path or SCWRL
+        if n_prot > 0 and not tools['scwrl']:
+            raise RuntimeError(
+                f"SCWRL4 is required for protein reconstruction but was not found at: {scwrl_exe}\n"
+                f"Install SCWRL4 from http://dunbrack.fccc.edu/SCWRL4.php and either:\n"
+                f"  - Pass its path with --scwrl /path/to/Scwrl4\n"
+                f"  - Set the SCWRL4_PATH environment variable"
+            )
+        
+        dnabackmap_exe = dnabackmap_path or DNABACKMAP
+        if n_dna > 0 and not tools['dnabackmap']:
+            raise RuntimeError(
+                f"DNAbackmap is required for DNA reconstruction but was not found at: {dnabackmap_exe}\n"
+                f"Install DNAbackmap from the GENESIS package and either:\n"
+                f"  - Pass its path with --dnabackmap /path/to/DNAbackmap\n"
+                f"  - Set the DNABACKMAP_PATH environment variable"
+            )
+        
         # Reconstruct protein sidechains with SCWRL4
         prot_reconstructed = False
         if n_prot > 0:
-            if tools['scwrl']:
-                print("Running SCWRL4...")
-                if run_scwrl(prot_cg, prot_aa, scwrl_path=scwrl_path):
-                    prot_reconstructed = True
-                else:
-                    print("Warning: SCWRL4 failed, using backbone-only protein")
+            print("Running SCWRL4...")
+            if run_scwrl(prot_cg, prot_aa, scwrl_path=scwrl_path):
+                prot_reconstructed = True
             else:
-                print("Warning: SCWRL4 not available, skipping side-chain reconstruction")
+                raise RuntimeError("SCWRL4 failed during protein side-chain reconstruction")
         
         # Reconstruct all-atom DNA with DNAbackmap
         dna_reconstructed = False
         if n_dna > 0:
-            if tools['dnabackmap']:
-                print("Running DNAbackmap...")
-                if run_dnabackmap(dna_cg, dna_aa, dnabackmap_path=dnabackmap_path, work_dir=tmp):
-                    dna_reconstructed = True
-                else:
-                    print("Warning: DNAbackmap failed, using CG DNA")
+            print("Running DNAbackmap...")
+            if run_dnabackmap(dna_cg, dna_aa, dnabackmap_path=dnabackmap_path, work_dir=tmp):
+                dna_reconstructed = True
             else:
-                print("Warning: DNAbackmap not available, skipping DNA reconstruction")
+                raise RuntimeError("DNAbackmap failed during DNA reconstruction")
         
         # Determine what files to use for merging
         prot_file = prot_aa if prot_reconstructed else (prot_cg if n_prot > 0 else None)
@@ -481,25 +494,10 @@ def reconstruct(input_pdb: str | PathLike, output_pdb: str | PathLike | None = N
             raise RuntimeError("No protein or DNA atoms found in input")
         
         # Run PDBFixer and minimize on merged structure
-        # (Only works if both protein and DNA are all-atom)
         if prot_reconstructed or dna_reconstructed:
-            can_minimize = True
-            # If DNA wasn't reconstructed, CG residues will fail in force field
-            if n_dna > 0 and not dna_reconstructed:
-                print("Warning: Skipping minimization (CG DNA not supported by force field)")
-                can_minimize = False
-            # If protein wasn't reconstructed, CG residues may fail
-            if n_prot > 0 and not prot_reconstructed:
-                print("Warning: Skipping minimization (CG protein not fully supported)")
-                can_minimize = False
-            
-            if can_minimize:
-                print("Running PDBFixer and minimizing merged structure...")
-                fix_minimize(merged, out, steps, freeze_backbone)
-            else:
-                shutil.copy(merged, out)
+            print("Running PDBFixer and minimizing merged structure...")
+            fix_minimize(merged, out, steps, freeze_backbone)
         else:
-            print("Warning: No reconstruction tools available, output contains CG structure")
             shutil.copy(merged, out)
         
         print(f"Done: {out}")
