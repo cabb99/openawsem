@@ -450,7 +450,10 @@ def pap_term_1(oa, k=0.5*kilocalories_per_mole, dis_i_to_i4=1.2, forceGroup=28, 
     may be found in tests/data/test_implementation_of_lammps_hbond_energies/lammps_setup_parameters.   
     It should be noted that not all LAMMPS AWSEM-MD versions are identical.
 
-    However, the LAMMPS AWSEM-MD potential is implemented as a single term that should be accessed using pap_term_old.
+    I believe using pap_nu_on=False with version='efficiency_optimized' is equivalent to but maybe more efficient than 
+    using version='lammps_awsemmd' (pap_nu_on is irrelevant in this case). I'll check this soon.
+
+    The rigorously tested LAMMPS AWSEM-MD potential is implemented as a single term that should be accessed using pap_term_old.
 
     The OpenAWSEM paper:
     Lu, W.; Bueno, C.; Schafer, N. P.; Moller, J.; Jin, S.; Chen, X.; Chen, M.; Gu, X.; 
@@ -502,7 +505,10 @@ def pap_term_2(oa, k=0.5*kilocalories_per_mole, dis_i_to_i4=1.2, forceGroup=28, 
     may be found in tests/data/test_implementation_of_lammps_hbond_energies/lammps_setup_parameters.   
     It should be noted that not all LAMMPS AWSEM-MD versions are identical.
 
-    However, the LAMMPS AWSEM-MD potential is implemented as a single term that should be accessed using pap_term_old.
+    I believe using pap_nu_on=False with version='efficiency_optimized' is equivalent to but maybe more efficient than 
+    using version='lammps_awsemmd' (pap_nu_on is irrelevant in this case). I'll check this soon.
+
+    The rigorously tested LAMMPS AWSEM-MD potential is implemented as a single term that should be accessed using pap_term_old.
 
     The OpenAWSEM paper:
     Lu, W.; Bueno, C.; Schafer, N. P.; Moller, J.; Jin, S.; Chen, X.; Chen, M.; Gu, X.; 
@@ -547,41 +553,274 @@ def pap_term_old(oa, k_pap=4.184, forceGroup=26, ssweight_file="ssweight", enabl
 
 def helical_term(oa, k_helical=4.184, inMembrane=False, forceGroup=29):
     """
-    Note that this term is not exactly the same as the LAMMPS AWSEM-MD helical term.
-    I think the only difference is the treatment of proline at the i+4 position.
-    Changing this to make it exactly like lammps would be difficult and possibly cost us some efficiency.
+    We can think of this as the "default" or "efficiency-optimized" helical term
+    written by Lu et al. around 2020.
+    
+    This term is not exactly the same as the LAMMPS AWSEM-MD helical term.
+    The major difference is that this term doesn't consider the sigma_helix (analogous to
+    sigma_wat but possibly with different parameters) of the pair of residues
+    involved in the hydrogen bonding interaction (see density_dependent_helical_term
+    for explanation).
+
+    Another difference is that, since we don't have a virtual particle for the proline 
+    backbone H (which doesn't exist in reality), it can't act as a donor. 
+    Here, we simply turn off the potential in the case that proline is in the donor position.
+
+    In LAMMPS, proline in the donor (i+4) position is allowed to participate in an hbond interaction,
+    but the default proline weight makes the interaction strongly unfavorable. 
+    Having a hydrogen bond with proline in the acceptor (i) position can then be made
+    more favorable by the pro_accepter_flag argument and passing a more favorable
+    weight than the normal unfavorable weight. For example:
+    [Helix]
+    0.5
+    2.0 -1.0
+    7.0 7.0
+    3.0
+    4
+    15.0
+    4.5 6.5
+    0.77 0.68 0.07 0.15 0.23 0.33 0.27 0.0 0.06 0.23 0.62 0.65 0.50 0.41 -3.0 0.35 0.11 0.45 0.17 0.14
+    0 -3.0     <-- 0 is pro_accepter_flag, so proline will get the default weight of -3.0 for both i and i+4 positions
+                   and even if we had set it to 1, the second number, -3.0, is the same as the default, so it
+                   wouldn't have mattered. But we could change 0 -> 1 and -3.0 -> something else           
+    0.76 0.68
+    2.1558 2.9862
     """
-    # without density dependency.
-    # without z dependency for now.
+    # some useful parameters
     k_helical *= oa.k_awsem
     sigma_NO = 0.068
     sigma_HO = 0.076
-    r_ON = 0.298
-    r_OH = 0.206
+    r_ON = 0.298 # mingchen/weihua used a slightly different number (0.21558 nm)
+    r_OH = 0.206 # mingchen/weihua used a slightly different number (0.29862 nm)
 
+    # theta_ij checks whether our O_i, N_i+4, and H_i+4 are in an H-bond geometry
     theta_ij = f"exp(-(r_Oi_Nip4-{r_ON})^2/(2*{sigma_NO}^2)-(r_Oi_Hip4-{r_OH})^2/(2*{sigma_HO}^2))"
+
+    #declare 3-body Force
     helical = CustomCompoundBondForce(3, f"-{k_helical}*(fa_i+fa_ip4)*{theta_ij};\
                                         r_Oi_Nip4=distance(p1,p2);r_Oi_Hip4=distance(p1,p3);")
+    
+    # add per-amino-acid helical propensities
     helical.addPerBondParameter("fa_i")
     helical.addPerBondParameter("fa_ip4")
+
+    # add a Bond to the Force for each (i, i+4) pair
     for i in range(oa.nres):
-        # if not isChainEnd(i, oa.chain_ends, n=4) and oa.res_type[i+4] == "IPR":
-        #     print(oa.o[i], oa.n[i+4], oa.h[i+4])
         if not isChainEnd(i, oa.chain_ends, n=4) and oa.res_type[i+4] != "IPR":
             fa_i = get_helical_f(oa.seq[i], inMembrane=inMembrane)
             fa_ip4 = get_helical_f(oa.seq[i+4], inMembrane=inMembrane)
             helical.addBond([oa.o[i], oa.n[i+4], oa.h[i+4]], [fa_i, fa_ip4])
 
+    # finalize setup and return Force
     helical.setForceGroup(forceGroup)
     return helical
+
+def density_dependent_helical_term(oa, k_helical=4.184, inMembrane=False, forceGroup=29):
+    # we avoid get_helical_f here so that we can reproduce old work
+    helical_gamma_i=[0.77,0.68,0.07,0.15,0.23,0.33,0.27,0.0,0.06,0.23,0.62,0.65,0.50,0.41,-3.0,0.35,0.11,0.45,0.17,0.14]
+    arnd = 'ARNDCQEGHILKMFPSTWYV'
+    """
+    WARNING: THIS TERM IS EXPECTED TO BE VERY SLOW AND/OR RAM-INTENSIVE
+    FOR ALL BUT THE SMALLEST SYSTEMS.
+    SEE density_dependent_helical_term_approximate FOR AN ALTERNATIVE.
+
+    This is the exact density-dependent helical term calculated by lammps commit
+    https://github.com/adavtyan/awsemmd/tree/cea754f1208fde6332d4d0f1cae3212bf7e8afbb
+    using the following vitural site and helical parameters:
+    [ABC]
+    0.4831806 0.703282 -0.1864262
+    0.4436538 0.2352006 0.3211455
+    0.841 0.89296 -0.73389
+    [Helix]
+    0.5
+    2.0 -1.0
+    7.0 7.0
+    3.0
+    4
+    15.0
+    4.5 6.5
+    0.77 0.68 0.07 0.15 0.23 0.33 0.27 0.0 0.06 0.23 0.62 0.65 0.50 0.41 -3.0 0.35 0.11 0.45 0.17 0.14
+    0 -3.0
+    0.76 0.68
+    2.1558 2.9862
+
+    This term is similar to helical_term, except it includes the sigma_helix factor in the energy expression
+    and creates a hydrogen pseudoatom on the proline N so it can be treated like the other residues.
+    
+    sigma_helix is analogous to sigma_water but its default parameters are different. 
+    Both sigma_helix and sigma_water assign a pair of residues as either exposed or buried
+    based on the rho values of the two residues in the pair. The "sigma_helix factor"
+    linearly interpolates between +2 and -1 as sigma_helix goes from 0 (buried residues)
+    to 1 (exposed residues), reflecting that helices are somewhat less stable in 
+    solvent-exposed environments than in buried environments.
+
+    The modern density-dependent helical potential was introduced in 
+    2010 (doi.org/10.1016/j.ymeth.2010.05.006). As noted in this paper, the roots of
+    the helical potential go back to 1999 (doi.org/10.1063/1.479101).
+
+    Strangely, the helical conformation actually becomes favorable for proline in a 
+    solvent-exposed environment. This is because the sum of the default proline
+    helical propensity (-3.0) with any other residue's helical propensity (>= 0)
+    is a fairly big negative number which, when multiplied by the default weight
+    for the water environment of -1.0, and then by the coefficient of -k_helical,
+    gives a negative (favorable) potential. It would probably make more sense to 
+    just exclude pairs (i,i+4) with PRO at i+4 from the potential.
+    """
+    if inMembrane:
+        raise NotImplementedError("inMembrane option=True not supported for density_dependent_helical_term")
+
+    # some useful parameters
+    k_helical *= oa.k_awsem
+    sigma_NO = 0.068
+    sigma_HO = 0.076
+    r_ON = 0.29862#0.298 # mingchen/weihua used 2.9862, at least for the helical hbond sigma
+    r_OH = 0.21558#0.206 # mingchen/weihua used 2.1558, at least for the helical hbond sigma
+    # parameters for the sigma involved in the helical hbonds
+    helix_eta = 7 # CAREFUL: THIS NUMBER HAS UNITS OF 1/ANGSTROM, SO WE MULTIPLY THE DISTANCES (IN nm) BY 10 (SEE BELOW)
+    helix_eta_sigma = 7.0
+    helix_rho_0 = 3.0
+
+    # interpolates between favorable and unfavorable weights for burial and exposed pairs, respectively
+    sigma_helix_term = '(2-3*sigma_helix)' # equal to (helix_gamma_p*(1-sigma_helix)+helix_gamma_w*sigma_helix), where helix_gamma_p=2, helix_gamma_w=-1
+
+    # characterizes the compatibility of O_i, N_i+4, and H_i+4 with hydrogen bonding
+    theta_helix = f"exp(-(distance(p1,p2)-{r_ON})^2/(2*{sigma_NO}^2)-(pointdistance(x1,y1,z1,xh,yh,zh)-{r_OH})^2/(2*{sigma_HO}^2))"
+
+    # Create rho expressions to help us select the needed rho value for each residue.
+    #
+    #     This expression is the sum of the rho value of each residue multiplied by
+    #     a delta function that depends on the PerBondParameter i. Each Bond sets
+    #     i to the 0-indexed position of the acceptor or donor residue 
+    #     so that the density of that residue can be isolated. 
+    rho_i = "(0"
+    for i in range(oa.nres):
+        rho_i += f"+delta({i}-i)*(0" # multiply delta function by density of residue i
+        for j in range(oa.nres): # create string representing density of residue i
+            if abs(j-i) >= 2: # get contribution of residue j to the rho of residue i
+                r_ij = f'10*distance(p{i+6},p{j+6})'
+                rho_i += f"+0.25*(1+tanh({helix_eta}*({r_ij}-4.5)))*(1+tanh({helix_eta}*(6.5-{r_ij})))"
+            else:
+                continue # we would have violated min seq sep rho of 2 if we included this residue in the rho calculation
+        rho_i += ')'
+    rho_i += ')'
+    rho_ip4 = "(0"
+    for i in range(4,oa.nres):
+        rho_ip4 += f"+delta({i-4}-i)*(0"
+        for j in range(oa.nres):
+            if abs(j-i) >= 2:
+                r_ip4j = f'10*distance(p{i+6},p{j+6})'
+                rho_ip4 += f"+0.25*(1+tanh({helix_eta}*({r_ip4j}-4.5)))*(1+tanh({helix_eta}*(6.5-{r_ip4j})))"
+        rho_ip4 += ')'
+    rho_ip4 += ')'
+ 
+    # get hydrogen pseudoatom coordinates (this allows us to treat IPR (proline) like the other residues)
+    definitions = f';xh=0.841*x4+0.89296*x5-0.73389*x3;yh=0.841*y4+0.89296*y5-0.73389*y3;zh=0.841*z4+0.89296*z5-0.73389*z3\
+        ;sigma_helix=0.25*(1-tanh({helix_eta_sigma}*({rho_i}-{helix_rho_0})))*(1-tanh({helix_eta_sigma}*({rho_ip4}-{helix_rho_0})))'
+    energy_string = f'-{k_helical}*{sigma_helix_term}*(helical_propensities(i)+helical_propensities(i+4))*{theta_helix}{definitions}' 
+
+    # set up Force
+    HB = CustomCompoundBondForce(6+oa.nres-1, energy_string) # see below for how we calculate the number of atoms needed
+    HB.addPerBondParameter("i") #                note that we don't use get_helical_f here because it has a different proline parameter
+    HB.addTabulatedFunction('helical_propensities', Discrete1DFunction([helical_gamma_i[arnd.index(one_letter_code)] for one_letter_code in oa.seq]))
+
+    # get particle indices and set up each Bond
+    # index 1: Oi    (needed to calculate geometric compatibility with H bond)
+    # index 2: Nip4  (needed to calculate geometric compatibility with H bond)
+    # index 3: Oip3  (needed to calculate position of hip4, used to calculate geometric compatibility with H bond)
+    # index 4: CAip3 (needed to calculate position of hip4)
+    # index 5: CAip4 (needed to calculate position of hip4)
+    # indices 6 to 6+N-1: CB atoms, from residue 1 to N (needed to calculate rho);
+    for i in range(oa.nres-4):
+        if inSameChain(i, i+4, oa.chain_starts, oa.chain_ends):
+            # we should add a bond
+            particles = [oa.o[i], oa.n[i+4], oa.o[i+3], oa.ca[i+3], oa.ca[i+4]]
+            cb_fixed = [x if x > 0 else y for x,y in zip(oa.cb,oa.ca)]
+            particles += cb_fixed
+            assert len(particles) == oa.nres+5, particles
+            HB.addBond(particles, [i])  # perbondparameter "i" indicates the 0-indexed residue index of the acceptor
+    HB.setForceGroup(forceGroup)
+    return HB
+
+def density_dependent_helical_term_approximate(oa, k_helical=4.184, inMembrane=False, forceGroup=29):
+    # we avoid get_helical_f here so that we can reproduce old work                        -3.0
+    helical_gamma_i=[0.77,0.68,0.07,0.15,0.23,0.33,0.27,0.0,0.06,0.23,0.62,0.65,0.50,0.41,0.0,0.35,0.11,0.45,0.17,0.14]
+    arnd = 'ARNDCQEGHILKMFPSTWYV'
+    # just do this for now until we decide how to implement membrane parameters
+    if inMembrane:
+        raise NotImplementedError("still figuring out how density-dependent helical term should mix with membrane gammas")
+    """ 
+    Efficient approximation to density_dependent_helical_term with density dependence.
+    The approximation lies in the use of combined attractive and repulsive PAIRWISE interactions
+    to give an effectively directional hydrogen bond.
+    """
+    # the general implementation strategy here is to use a CustomCompoundBondForce
+    # to get rho just like we do for the contact term, then add pairwise energy terms
+    # to the Force to implement the attractive and repulsive interactions ONLY
+    # between residues i and i+4. Since pairs (i,i+4) are excluded from the Beta
+    # and P-AP hydrogen bonding terms, there shouldn't be any side effects of 
+    # changing the form of the interaction; we just want to get as close as 
+    # reasonably possible to the lammps version.
+
+    # some useful parameters
+    k_helical *= oa.k_awsem
+    sigma_NO = 0.068
+    sigma_HO = 0.076
+    r_ON = 0.29862#0.298 # mingchen/weihua used 2.9862, at least for the helical hbond sigma
+    r_OH = 0.21558#0.206 # mingchen/weihua used 2.1558, at least for the helical hbond sigma
+    # parameters for the sigma involved in the helical hbonds
+    helix_eta = 7 # CAREFUL: THIS NUMBER HAS UNITS OF 1/ANGSTROM, SO WE MULTIPLY THE DISTANCES (IN nm) BY 10 (SEE BELOW)
+    helix_eta_sigma = 7.0
+    helix_rho_0 = 3.0
+
+    # set up Force
+    HB = CustomGBForce()
+    HB.addPerParticleParameter("resId")
+    HB.addPerParticleParameter("isCb")
+    HB.addPerParticleParameter("isN") 
+    HB.addPerParticleParameter("isO")
+    HB.addPerParticleParameter("isCa")
+    HB.addPerParticleParameter("isCp") # C prime (backbone carbonyl carbon)
+    HB.addTabulatedFunction('helical_propensities', Discrete1DFunction([helical_gamma_i[arnd.index(one_letter_code)] for one_letter_code in oa.seq]))
+    # HB.addTabulatedFunction('helical_propensities', Discrete1DFunction([get_helical_f(oa.seq[i], inMembrane=inMembrane) for one_letter_code in oa.seq]))
+    #     should consider contributes for residue with sequence separation of less that 2 (meaning 1) if 
+    #     the two residues are in different chains
+    HB.addComputedValue("rho", f"isCb1*isCb2*step(abs(resId1-resId2)-2)*0.25*(1+tanh({helix_eta}*(10*r-4.5)))*(1+tanh({helix_eta}*(6.5-10*r)))", CustomGBForce.ParticlePair)
+
+    # add particles to Force
+    #     replace cb with ca for GLY
+    cb_fixed = [x if x > 0 else y for x,y in zip(oa.cb,oa.ca)]
+    none_cb_fixed = [i for i in range(oa.natoms) if i not in cb_fixed]
+    assert len(cb_fixed) == oa.nres, f"Number of atoms in cb_fixed (non-GLY CB and GLY CA atoms), {len(cb_fixed)}, does not match number of residues {oa.nres}."
+    for i in range(oa.natoms):
+        HB.addParticle([oa.resi[i], int(i in cb_fixed), int(i in oa.n), int(i in oa.o), int(i in oa.ca), int(i in oa.c)]) 
+
+    # define energy
+    #definitions =    f';sigma_helix_term=2\
+    definitions = f';sigma_helix_term=(2-3*sigma_helix)\
+        ;sigma_helix=0.25*(1-tanh({helix_eta_sigma}*(rho1-{helix_rho_0})))*(1-tanh({helix_eta_sigma}*(rho2-{helix_rho_0})))\
+        ;propensity=(helical_propensities(resId1)+helical_propensities(resId2))\
+        ;LJ=(-isO1*isN2*tanh(0.03*((2/(10*r-3.43))^2))+(isCp1*isCp2+isCp1*isCa2+isCa1*isN2+isN1*isN2)*tanh(0.03*((2/(10*r-2))^2)))'
+        #;LJ=(-isO1*isN2*tanh(0.03*((2/(10*r-3.43))^2)))'
+        #;LJ=(-isO1*isN2+isCp1*isCp2+isCp1*isCa2)*tanh(0.03*((2/(10*r-3.43))^2))'
+        #;LJ=isO1*isN2*(5*((2.0/(10*r-1.43))^(12))-6*((2.0/(10*r-1.43))^(10)))' # converting r from nm to Angstrom to match units of constants
+    # no leading negative sign in energy string because LJ term is sort of like a negative helix theta
+    energy_string = f"{k_helical}*delta((resId2-resId1)-4)*sigma_helix_term*propensity*LJ{definitions}"
+    HB.addEnergyTerm(energy_string, CustomGBForce.ParticlePair)
+
+    # finalize and return Force
+    #     cutoff shouldn't matter because i and i+4 should always be close in space
+    if oa.periodic_box:
+        HB.setNonbondedMethod(HB.CutoffPeriodic)
+    else:
+        HB.setNonbondedMethod(HB.CutoffNonPeriodic)
+    HB.setForceGroup(forceGroup)
+    return HB
 
 def sequence_independent_helical_term(oa, k_helical=4.184, inMembrane=False, forceGroup=29):
     """
     Experimental sequence-independent helical term for folding designed sequences
     """
-    
-    # without density dependency.
-    # without z dependency for now.
+    # see helical_term for helpful comments on parameters and code in this function
     k_helical *= oa.k_awsem
     sigma_NO = 0.068
     sigma_HO = 0.076
@@ -753,7 +992,7 @@ def _beta_lammps_awsemmd(oa, term_number, ssweight_file, forceGroup, k_beta, bet
                 # so there's no need to add a bond if |i-j|=3
                 continue
             # if sequence separation is less than 18, i and j are in the same chain, and both are not designated as beta in ssweight,
-            #     then we alway set the energy to 0, so we can just exclude the Bond from the Force
+            #     then we always set the energy to 0, so we can just exclude the Bond from the Force
             elif abs(i-j) < 18 and inSameChain(i, j, oa.chain_starts, oa.chain_ends) and (rama_biases[i][1]==0 or rama_biases[j][1]==0):
                 continue
             # the lammps code excludes certain pairs of residues from Beta2 but not the others
@@ -990,10 +1229,10 @@ def _pap_lammps_awsemmd(oa, ssweight_file, forceGroup, k_pap, enable_antiparalle
             # Not a valid i
             continue
         for j in range(nres):
-            # check if we may be able to add an antiparallel hydrogen bond
             delta = j-i
             intrachain = inSameChain(i,j,oa.chain_starts,oa.chain_ends)
             if enable_antiparallel:
+                # check if we may be able to add an antiparallel hydrogen bond
                 if not inSameChain(j,j-4,oa.chain_starts,oa.chain_ends):
                     K = 0 # Not a valid j
                 elif intrachain and delta < 13: 
@@ -1006,9 +1245,10 @@ def _pap_lammps_awsemmd(oa, ssweight_file, forceGroup, k_pap, enable_antiparalle
                         K *= k_beta_pred_p_ap
                 else:
                     raise AssertionError("unexpected else block")
-                if K:
+                if K: # add the Bond unless its energy would always be 0
                     pap.addBond([ca[i],ca[j],ca[i+4],ca[j-4]], [K])
             if enable_parallel:
+                # check if we may be able to add a parallel hydrogen bond
                 if not inSameChain(j,j+4,oa.chain_starts,oa.chain_ends):
                     K=0 #Not a valid j
                 elif intrachain and delta < 9:
@@ -1017,9 +1257,9 @@ def _pap_lammps_awsemmd(oa, ssweight_file, forceGroup, k_pap, enable_antiparalle
                     K = gamma_p*k_beta_pred_p_ap
                 else:
                     K = gamma_p
-                if K:
+                if K: # add the Bond unless its energy would always be 0
                     pap.addBond([ca[i],ca[j],ca[i+4],ca[j+4]], [K])
-            
+    # finalize and return Force 
     pap.setForceGroup(forceGroup)
     return pap
 

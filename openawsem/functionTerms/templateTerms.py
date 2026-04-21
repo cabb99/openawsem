@@ -67,6 +67,31 @@ def tbm_q_term(oa, k_tbm_q, rnative_dat="rnative.dat", tbm_q_min_seq_sep=3, tbm_
     return tbm_q
 
 
+def interface_q_term(oa, pairs, rnatives, sigma, target_q, k, forceGroup=26):
+    """
+    oa: same as always
+    pairs: list of lists, where each sublist contains two atom indices, one on either side of the interface
+    rnatives: list of target distances of the same length as pairs, in nm
+    sigma: sigma of the gaussian function, in nm;
+    target_q: q value having minimum penalty (bias function equal to 0)
+    k: stiffness of q restraint, in kJ/mol (bias = (1/2)k*(q-target_q)^2)
+    """
+    print("Interface Q term ON")
+    assert len(pairs) == len(rnatives)
+    # set up collective variable, q
+    q = CustomBondForce(f"(1/{len(rnatives)})*gamma_ij*exp(-(r-r_ijN)^2/(2*sigma_ij^2))")
+    q.addPerBondParameter("gamma_ij")
+    q.addPerBondParameter("r_ijN")
+    q.addPerBondParameter("sigma_ij")
+    for pair, rnative in zip(pairs, rnatives):
+        #print([pair[0], pair[1], [1.0, rnative, sigma]])
+        q.addBond(pair[0], pair[1], [1.0, rnative, sigma])
+    # set up Force
+    q_force = CustomCVForce(f"{k}*(q-{target_q})^2")
+    q_force.addCollectiveVariable("q", q)
+    q_force.setForceGroup(forceGroup)
+    return q_force
+
 
 def fragment_memory_term(oa, k_fm=0.04184, frag_file_list_file="./frag.mem", npy_frag_table="./frag_table.npy",
                     min_seq_sep=3, max_seq_sep=9, fm_well_width=0.1, UseSavedFragTable=True, caOnly=False, forceGroup=23,

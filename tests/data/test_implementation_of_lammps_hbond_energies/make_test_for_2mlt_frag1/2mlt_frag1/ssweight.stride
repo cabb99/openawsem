@@ -1,0 +1,29 @@
+REM  -------------------- Secondary structure summary -------------------  ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb A                                               ~~~~
+REM                                                                        ~~~~
+REM                .                                                       ~~~~
+SEQ  1    GIGAVLKVLTTGLP                                       14          ~~~~
+STR         HHHHHHHHH                                                      ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+LOC  AlphaHelix   GLY     3 A      THR     11 A                            ~~~~
+REM                                                                        ~~~~
+REM  --------------- Detailed secondary structure assignment-------------  ~~~~
+REM                                                                        ~~~~
+REM  |---Residue---|    |--Structure--|   |-Phi-|   |-Psi-|  |-Area-|      ~~~~
+ASG  GLY A    1    1    C          Coil    360.00    172.55      89.9      ~~~~
+ASG  ILE A    2    2    C          Coil    -63.94    -30.26     141.5      ~~~~
+ASG  GLY A    3    3    H    AlphaHelix    -69.54    -40.19      48.7      ~~~~
+ASG  ALA A    4    4    H    AlphaHelix    -68.24    -44.71      61.2      ~~~~
+ASG  VAL A    5    5    H    AlphaHelix    -60.40    -43.05      81.0      ~~~~
+ASG  LEU A    6    6    H    AlphaHelix    -61.15    -45.12      92.3      ~~~~
+ASG  LYS A    7    7    H    AlphaHelix    -61.39    -39.06     155.8      ~~~~
+ASG  VAL A    8    8    H    AlphaHelix    -64.21    -38.72      81.8      ~~~~
+ASG  LEU A    9    9    H    AlphaHelix    -57.29    -33.43      91.7      ~~~~
+ASG  THR A   10   10    H    AlphaHelix    -86.68    -21.73      84.2      ~~~~
+ASG  THR A   11   11    H    AlphaHelix   -130.92    -41.83     102.1      ~~~~
+ASG  GLY A   12   12    C          Coil    -84.35    -32.80      57.7      ~~~~
+ASG  LEU A   13   13    C          Coil    -61.84    -45.98     130.2      ~~~~
+ASG  PRO A   14   14    C          Coil    -53.87    360.00     138.7      ~~~~

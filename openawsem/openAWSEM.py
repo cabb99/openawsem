@@ -151,6 +151,8 @@ class BaseError(Exception):
 class Protein(object):
     def __init__(self, atoms, sequence, k_awsem=1):
         self.atoms = atoms
+        self.periodic_box = None
+        self.fixed_residue_indices = []
 
         #Include real residue name in atoms
         atoms = self.atoms.copy()

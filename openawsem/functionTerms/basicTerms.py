@@ -19,6 +19,14 @@ three_to_one = {'ALA':'A', 'ARG':'R', 'ASN':'N', 'ASP':'D', 'CYS':'C',
                 'LEU':'L', 'LYS':'K', 'MET':'M', 'PHE':'F', 'PRO':'P',
                 'SER':'S', 'THR':'T', 'TRP':'W', 'TYR':'Y', 'VAL':'V'}
 
+def find_chain_index(res: int, chain_starts, chain_ends) -> int:
+    """
+    Find the index of the chain that contains the residue with index `res`.
+    """
+
+    chain_index = [int(chain_start<=res and res<=chain_end) for chain_start,chain_end in zip(chain_starts,chain_ends)]
+    assert sum(chain_index) == 1, f"res: {res}, chain_starts: {chain_starts}, chain_ends: {chain_ends}, list: {chain_index}"
+    return chain_index.index(1)
 
 def con_term(oa, k_con=50208, bond_lengths=[.3816, .240, .276, .153], forceGroup=20):
     # add con forces
@@ -97,84 +105,87 @@ def chi_term(oa, k_chi=251.04, chi0=-0.71, forceGroup=20):
     chi.setForceGroup(forceGroup)
     return chi
 
-def excl_term(oa, k_excl=8368, r_excl=0.35, excludeCB=False, forceGroup=20):
+def excl_term(oa, k_excl=8368, excludeCB=False, forceGroup=20):
     # add excluded volume
-    # Still need to add element specific parameters
     # 8368 = 20 * 4.184 * 100 kJ/nm^2, converted from default value in LAMMPS AWSEM
+    #
     # multiply interaction strength by overall scaling
-    # Openawsem doesn't have the distance range (r_excl) change from 0.35 to 0.45 when the sequence separtation more than 5
     k_excl *= oa.k_awsem
-    excl = CustomNonbondedForce(f"{k_excl}*step({r_excl}-r)*(r-{r_excl})^2")
-
+    # We want to exclude "bonded" atoms from the potential.
+    # The bonded real (non-virtual site) pairs are:
+    #     CA_i - O_i
+    #     CA_i - CB_i
+    #     CA_i - CA_i+1
+    #      O_i - CA_i+1
+    # CAs and Os are never added as InteractionGroups,
+    # so we don't need to worry about excluding CA-O bonds.
+    # Since CB-O pairs aren't added as InteractionGroups, either,
+    # we can knock out the same-residue CA-CB interaction without side effects
+    # simply by requiring both atoms to have different resIds.
+    same_allow = "(1-delta(resId1-resId2))"
+    # If resId1 and resId2 separation is 1 and both are CA
+    # and they're in the same chain, set interaction to 0
+    diff1_allow = '(1-same_chain*delta(abs(resId1-resId2)-1)*isCA1*isCA2)'
+    # initialize Force
+    base_energy_string = f"{k_excl}*{same_allow}*{diff1_allow}*(close_in_sequence*step(rI-r)*((rI-r)^2)+(1-close_in_sequence)*step(rII-r)*((rII-r)^2))"
+    # we can't use openmm's          ^^^^^^^^^^^^^^^^^^^^^^^^ automatic bonded exclusions because they have to be the same for all Forces,
+    # so we program the exclusion for adjacent (bonded) particles into the potential
+    definitions = ";rI=0.35\
+        ;rII=max(r_preferred2,r_preferred1)\
+            ;close_in_sequence=same_chain*(1-at_least_5)\
+                ;at_least_5=step(abs(resId2-resId1)-5)\
+                    ;same_chain=delta(chainId2-chainId1)" 
+    energy_string = f'{base_energy_string}{definitions}'
+    excl = CustomNonbondedForce(energy_string)
+    # set parameters and add particles
+    excl.addPerParticleParameter("chainId")
+    excl.addPerParticleParameter("resId")
+    excl.addPerParticleParameter("r_preferred")
+    excl.addPerParticleParameter("isCA")
+    for i in range(oa.natoms):
+        res = oa.resi[i]
+        if res != -1:
+            chain = find_chain_index(res, oa.chain_starts, oa.chain_ends)
+        else: # resi==-1 reserved for DNA residues that shouldn't be included
+            chain = -1 # dummy parameter for when we add the particle to the Force
+                       # (all particles must be added to the Force, but non-protein
+                       # particles won't interact with anything because they're not
+                       # included in any InteractionGroups)
+        #                             VVVV change to 0.35 and tests will pass
+        excl.addParticle([chain, res, 0.45 if i in oa.o else 0.35, 1 if i in oa.ca else 0])
+    # set groups of interacting particles
+    excl.addInteractionGroup(oa.ca, oa.ca)
+    if not excludeCB:
+        excl.addInteractionGroup([x for x in oa.cb if x > 0], [x for x in oa.cb if x > 0])
+    excl.addInteractionGroup(oa.ca, [x for x in oa.cb if x > 0])
+    excl.addInteractionGroup(oa.o, oa.o)
+    # finalize and return Force
+    excl.setCutoffDistance(0.45)
+    #excl.createExclusionsFromBonds(oa.bonds, 1)
     if oa.periodic_box:
         excl.setNonbondedMethod(excl.CutoffPeriodic)
         print('\nexcl_term is periodic')
     else:
         excl.setNonbondedMethod(excl.CutoffNonPeriodic)
-
-    pos = oa.pdb.positions
-    for i in range(oa.natoms):
-        excl.addParticle()
-    excl.addInteractionGroup(oa.ca, oa.ca)
-    if not excludeCB:
-        excl.addInteractionGroup([x for x in oa.cb if x > 0], [x for x in oa.cb if x > 0])
-    excl.addInteractionGroup(oa.ca, [x for x in oa.cb if x > 0])
-    excl.addInteractionGroup(oa.o, oa.o)
-
-    excl.setCutoffDistance(r_excl)
-    excl.createExclusionsFromBonds(oa.bonds, 1)
     excl.setForceGroup(forceGroup)
     return excl
 
 
 def excl_term_v2(oa, k_excl=8368, r_excl=0.35, periodic=False, excludeCB=False, forceGroup=20):
-    # this version remove the use of "createExclusionsFromBonds", which could potentially conflict with other CustomNonbondedForce and causing "All forces must have the same exclusion".
-    # add excluded volume
-    # Still need to add element specific parameters
-    # 8368 = 20 * 4.184 * 100 kJ/nm^2, converted from default value in LAMMPS AWSEM
-    # multiply interaction strength by overall scaling
-    # Openawsem doesn't have the distance range (r_excl) change from 0.35 to 0.45 when the sequence separtation more than 5
-    k_excl *= oa.k_awsem
-    excl = CustomNonbondedForce(f"{k_excl}*step(abs(res1-res2)-2+isChainEdge1*isChainEdge2+isnot_Ca1+isnot_Ca2)*step({r_excl}-r)*(r-{r_excl})^2")
-    
-    if oa.periodic_box:
-        excl.setNonbondedMethod(excl.CutoffPeriodic)
-        print("\nexcel_term is periodic")
-    else:
-        excl.setNonbondedMethod(excl.CutoffNonPeriodic)
-
-    excl.addPerParticleParameter("res")
-    excl.addPerParticleParameter("isChainEdge")
-    excl.addPerParticleParameter("isnot_Ca")
-    for i in range(oa.natoms):
-        # print(oa.resi[i])
-        if (i in oa.chain_ends) or (i in oa.chain_starts):
-            # print(i)
-            isChainEdge = 1
-        else:
-            isChainEdge = 0
-        if (i in oa.ca):
-            isnot_Ca = 0
-        else:
-            isnot_Ca = 1
-        excl.addParticle([oa.resi[i], isChainEdge, isnot_Ca])
-    # print(oa.ca)
-    # print(oa.bonds)
-    # print(oa.cb)
-    excl.addInteractionGroup(oa.ca, oa.ca)
-    if not excludeCB:
-        excl.addInteractionGroup([x for x in oa.cb if x > 0], [x for x in oa.cb if x > 0])
-    excl.addInteractionGroup(oa.ca, [x for x in oa.cb if x > 0])
-    excl.addInteractionGroup(oa.o, oa.o)
-
-    excl.setCutoffDistance(r_excl)
-
-    # excl.setNonbondedMethod(excl.CutoffNonPeriodic)
-    # print(oa.bonds)
-    # print(len(oa.bonds))
-    # excl.createExclusionsFromBonds(oa.bonds, 1)
-    excl.setForceGroup(forceGroup)
-    return excl
+    # This term modified the potential energy expression to account for bonded exclusions
+    # (setting the potential to 0 for bonded atoms). These modifications have now been
+    # integrated into excl_term, making excl_term_v2 redundant. This function remains
+    # only for backward compatibility. 
+    #
+    # (Previously, excl_term used openmm's NonbondedForce.createExclusionsFromBonds(oa.bonds, 1)
+    # to exclude all pairs of directly bonded atoms, but this caused issues for protein-DNA
+    # systems because certain DNA or protein-DNA Forces required a different exclusion list,
+    # and openmm requires all Forces that implement exclusions to use the same list)
+    if r_excl != 0.35:
+        # r_excl should never have been made a parameter because it has, to my knowledge,
+        # never been adjusted
+        raise ValueError(f"r_excl must be 0.35 but was {r_excl}") 
+    return excl_term(oa, k_excl=k_excl, excludeCB=excludeCB, forceGroup=forceGroup)
 
 def rama_term(oa, k_rama=8.368, num_rama_wells=3, w=[1.3149, 1.32016, 1.0264], sigma=[15.398, 49.0521, 49.0954], omega_phi=[0.15, 0.25, 0.65], phi_i=[-1.74, -1.265, 1.041], omega_psi=[0.65, 0.45, 0.25], psi_i=[2.138, -0.318, 0.78], forceGroup=21):
     # add Rama potential

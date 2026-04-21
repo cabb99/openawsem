@@ -19,7 +19,7 @@ def constraint_by_distance(oa, res1, res2,  d0=0*angstrom, forceGroup=3, k=1*kil
     constraint.setForceGroup(forceGroup)
     return constraint
 
-def group_constraint_by_distance(oa, d0=0*angstrom, group1=[oa.ca[0], oa.ca[1]], group2=[oa.ca[2], oa.ca[3]], forceGroup=3, k=1*kilocalorie_per_mole):
+def group_constraint_by_distance(oa, d0=0*angstrom, group1=[0, 1], group2=[2, 3], forceGroup=3, k=1*kilocalorie_per_mole):
     # CustomCentroidBondForce only work with CUDA not OpenCL.
     #
     # note added 11 Jun 2025: CustomCentroidBondForce worked for me on OpenCL on my workstation, ws1808

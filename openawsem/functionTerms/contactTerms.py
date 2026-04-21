@@ -66,9 +66,294 @@ def inSameChain(i,j,chain_starts,chain_ends):
     return same_chain
 
 
-def contact_term(oa, k_contact=4.184, k_burial = None, z_dependent=False, z_m=1.5, inMembrane=False, membrane_center=0*angstrom, k_relative_mem=1.0, parametersLocation=None, burialPartOn=True, withExclusion=False, forceGroup=22,
-                gammaName="gamma.dat", burialGammaName="burial_gamma.dat", membraneGammaName="membrane_gamma.dat", r_min=0.45,min_sequence_separation=10,min_sequence_separation_mem=10,
-                direct_mask_ij=None, water_mask_ij=None, protein_mask_ij=None):
+def contact_term_with_density_dependent_helical_HB(
+    oa, k_contact=4.184, k_burial = None, z_dependent=False, z_m=1.5, inMembrane=False, membrane_center=0*angstrom, k_relative_mem=1.0, parametersLocation=None, burialPartOn=True, withExclusion=False, forceGroup=22,
+    gammaName="gamma.dat", burialGammaName="burial_gamma.dat", membraneGammaName="membrane_gamma.dat", r_min=0.45,min_sequence_separation=10,min_sequence_separation_mem=10,
+    direct_mask_ij=None, water_mask_ij=None, protein_mask_ij=None, k_helical=4.184, helical_gamma_i=[0.77,0.68,0.07,0.15,0.23,0.33,0.27,0.0,0.06,0.23,0.62,0.65,0.50,0.41,-3.0,0.35,0.11,0.45,0.17,0.14]):
+    """
+    THIS DOESN'T WORK BECAUSE THE CustomGBForce ONLY ALLOWS PAIRWISE 
+    INTERACTIONS ONCE RHO IS CALCULATED, BUT CALCULATING THE REAL HB
+    FORCE REQUIRES AT LEAST 3 SITES PER BOND. WE CAN APPROXIMATE
+    WITH A PAIRWISE INTERACTION, BUT GENERALLY THE HELICAL RHO 
+    CALCULATION HAS DIFFERENT PARAMETERS FOR THAT, SO WE HAVE A 
+    DIFFERENT TERM FOR IT (hydrogenBondTerms.density_dependent_helical_term_approximate)
+    """
+    raise NotImplementedError("this term doesn't work (see documentation)")
+    # helical_gamma_i is in ARND order because that's the order of gamma_se_map_1_letter
+    # set up masks to reweight contacts
+    if direct_mask_ij is not None and direct_mask_ij.shape != (oa.nres, oa.nres):
+        raise ValueError(f"direct_mask_ij should be of shape {(oa.nres, oa.nres)}, but got {direct_mask_ij.shape}")
+    if water_mask_ij is not None and water_mask_ij.shape != (oa.nres, oa.nres):
+        raise ValueError(f"water_mask_ij should be of shape {(oa.nres, oa.nres)}, but got {water_mask_ij.shape}")
+    if protein_mask_ij is not None and protein_mask_ij.shape != (oa.nres, oa.nres):
+        raise ValueError(f"protein_mask_ij should be of shape {(oa.nres, oa.nres)}, but got {protein_mask_ij.shape}")
+    # set up the rest of the parameters  
+    if parametersLocation is None:
+        parametersLocation=openawsem.data_path.parameters
+    if isinstance(k_contact, float) or isinstance(k_contact, int):
+        k_contact = k_contact * oa.k_awsem   # just for backward comptable
+    elif isinstance(k_contact, Quantity):
+        k_contact = k_contact.value_in_unit(kilojoule_per_mole)   # convert to kilojoule_per_mole, openMM default uses kilojoule_per_mole as energy.
+        k_contact = k_contact * oa.k_awsem
+    else:
+        print(f"Unknown input, {k_contact}, {type(k_contact)}")
+    #setting burial
+    if k_burial == None:
+        k_burial = k_contact
+    elif isinstance(k_burial, float) or isinstance(k_burial, int):
+        k_burial = k_burial * oa.k_awsem   # just for backward comptable
+    elif isinstance(k_burial, Quantity):
+        k_burial = k_burial.value_in_unit(kilojoule_per_mole)   # convert to kilojoule_per_mole, openMM default uses kilojoule_per_mole as energy.
+        k_burial = k_burial * oa.k_awsem
+    else:
+        print(f"Unknown input, {k_burial}, {type(k_burial)}")
+    # combine direct, burial, mediated.
+    # default membrane thickness 1.5 nm
+    membrane_center = membrane_center.value_in_unit(nanometer)   # convert to nm
+
+    # r_min = .45
+    r_max = .65
+    r_minII = .65
+    r_maxII = .95
+    eta = 50  # eta actually has unit of nm^-1.
+    eta_sigma = 7.0
+    rho_0 = 2.6
+    #min_sequence_separation = 10  # means j-i > 9 we address this by passing in parameter
+    #min_sequence_separation_mem = 10
+    nwell = 2
+    eta_switching = 10
+    gamma_ijm = np.zeros((nwell, 20, 20))
+    water_gamma_ijm = np.zeros((nwell, 20, 20))
+    protein_gamma_ijm = np.zeros((nwell, 20, 20))
+
+    # parameters for the sigma involved in the helical hbonds
+    helix_eta = 70 # see note on units for regular "eta"
+    helix_eta_sigma = 7.0
+    helix_rho_0 = 3.0
+
+    # read in seq data.
+    seq = oa.seq
+    # read in gamma info
+    gamma_direct, gamma_mediated = read_gamma(os.path.join(parametersLocation, gammaName))
+
+    burial_kappa = 4.0
+    burial_ro_min = [0.0, 3.0, 6.0]
+    burial_ro_max = [3.0, 6.0, 9.0]
+    burial_gamma = np.loadtxt(os.path.join(parametersLocation, burialGammaName))
+
+    k_relative_mem = k_relative_mem  # adjust the relative strength of gamma
+    inMembrane = int(inMembrane)
+    contact = CustomGBForce()
+
+    m = 0  # water environment
+    count = 0
+    for i in range(20):
+        for j in range(i, 20):
+            gamma_ijm[m][i][j] = gamma_direct[count][0]
+            gamma_ijm[m][j][i] = gamma_direct[count][0]
+            count += 1
+    count = 0
+    for i in range(20):
+        for j in range(i, 20):
+            water_gamma_ijm[m][i][j] = gamma_mediated[count][1]
+            water_gamma_ijm[m][j][i] = gamma_mediated[count][1]
+            count += 1
+    count = 0
+    for i in range(20):
+        for j in range(i, 20):
+            protein_gamma_ijm[m][i][j] = gamma_mediated[count][0]
+            protein_gamma_ijm[m][j][i] = gamma_mediated[count][0]
+            count += 1
+    # residue interaction table (step(abs(resId1-resId2)-min_sequence_separation))
+    res_table = np.zeros((nwell, oa.nres, oa.nres))
+    for i in range(oa.nres):
+        for j in range(oa.nres):
+            resId1 = i
+            resId2 = j
+            if abs(resId1-resId2)-min_sequence_separation >= 0 or not inSameChain(resId1, resId2, oa.chain_starts, oa.chain_ends):
+                res_table[0][i][j] = 1
+            else:
+                res_table[0][i][j] = 0
+
+
+    if z_dependent or inMembrane:
+        mem_gamma_direct, mem_gamma_mediated = read_gamma(os.path.join(parametersLocation, membraneGammaName))
+        m = 1  # membrane environment
+        count = 0
+        for i in range(20):
+            for j in range(i, 20):
+                gamma_ijm[m][i][j] = mem_gamma_direct[count][0]*k_relative_mem
+                gamma_ijm[m][j][i] = mem_gamma_direct[count][0]*k_relative_mem
+                count += 1
+        count = 0
+        for i in range(20):
+            for j in range(i, 20):
+                water_gamma_ijm[m][i][j] = mem_gamma_mediated[count][1]*k_relative_mem
+                water_gamma_ijm[m][j][i] = mem_gamma_mediated[count][1]*k_relative_mem
+                count += 1
+        count = 0
+        for i in range(20):
+            for j in range(i, 20):
+                protein_gamma_ijm[m][i][j] = mem_gamma_mediated[count][0]*k_relative_mem
+                protein_gamma_ijm[m][j][i] = mem_gamma_mediated[count][0]*k_relative_mem
+                count += 1
+        for i in range(oa.nres):
+            for j in range(oa.nres):
+                resId1 = i
+                resId2 = j
+                if abs(resId1-resId2)-min_sequence_separation_mem >= 0 or not inSameChain(resId1, resId2, oa.chain_starts, oa.chain_ends):
+                    res_table[m][i][j] = 1
+                else:
+                    res_table[m][i][j] = 0
+
+    contact.addTabulatedFunction("gamma_ijm", Discrete3DFunction(nwell, 20, 20, gamma_ijm.T.flatten()))
+    contact.addTabulatedFunction("water_gamma_ijm", Discrete3DFunction(nwell, 20, 20, water_gamma_ijm.T.flatten()))
+    contact.addTabulatedFunction("protein_gamma_ijm", Discrete3DFunction(nwell, 20, 20, protein_gamma_ijm.T.flatten()))
+    contact.addTabulatedFunction("burial_gamma_ij", Discrete2DFunction(20, 3, burial_gamma.T.flatten()))
+    contact.addTabulatedFunction("res_table", Discrete3DFunction(nwell, oa.nres, oa.nres, res_table.T.flatten()))
+    contact.addTabulatedFunction("inSameChain",Discrete2DFunction(oa.nres, oa.nres, np.array([[int(inSameChain(i,j,oa.chain_starts,oa.chain_ends)) for j in range(oa.nres)] for i in range(oa.nres)]).T.flatten()))
+    if direct_mask_ij is not None:
+        contact.addTabulatedFunction("direct_ij", Discrete2DFunction(oa.nres,oa.nres,direct_mask_ij.T.flatten()))
+    if protein_mask_ij is not None:
+        contact.addTabulatedFunction("protein_ij", Discrete2DFunction(oa.nres,oa.nres,protein_mask_ij.T.flatten()))
+    if water_mask_ij is not None:
+        contact.addTabulatedFunction("water_ij", Discrete2DFunction(oa.nres,oa.nres,water_mask_ij.T.flatten()))
+    contact.addTabulatedFunction("helicalHB_gamma_i", Discrete1DFunction(helical_gamma_i))
+
+    contact.addPerParticleParameter("resName")
+    contact.addPerParticleParameter("resId")
+    contact.addPerParticleParameter("isCb")
+    contact.addPerParticleParameter("isO")
+    contact.addPerParticleParameter("isN")
+    contact.addPerParticleParameter("isH")
+
+    contact.addComputedValue("rho", f"isCb1*isCb2*step(abs(resId1-resId2)-2)*0.25*(1+tanh({eta}*(r-{r_min})))*(1+tanh({eta}*({r_max}-r)))", CustomGBForce.ParticlePair)
+    #contact.addComputedValue("rho_test",f"isCb1*isCb2*step(abs(resId1-resId2)-2)", CustomGBForce.ParticlePair)
+
+    # if z_dependent:
+    #     contact.addComputedValue("isInMembrane", f"step({z_m}-abs(z))", CustomGBForce.SingleParticle)
+    # else:
+    #     contact.addComputedValue("isInMembrane", "0", CustomGBForce.SingleParticle)
+    
+
+    # mingchen/weihua defined the sharpness of the switching function differently for the helical hbonds for some reason,
+    #     so it technically requires us to compute a new rho
+    contact.addComputedValue("rho_forHB", f"isCb1*isCb2*step(abs(resId1-resId2)-2)*0.25*(1+tanh({helix_eta}*(r-{r_min})))*(1+tanh({helix_eta}*({r_max}-r)))", CustomGBForce.ParticlePair)
+    # for the hbonds, assign the Oi to Nip4 distance to particle Oi
+    #        and also assign the Oi to Hip4 distance to particle Oi
+    #        and also assign the sigma of i and ip4  to particle Oi
+    #        and also assign a bool of whether i and ip4 are in the same chain, multiplied by the sum of propensities, to particle Oi
+    contact.addComputedValue("r_Oi_Nip4_forHB", "isO1*isN2*delta((resId2-resId1)-4)*r", CustomGBForce.ParticlePair)
+    contact.addComputedValue("r_Oi_Hip4_forHB", "isO1*isH2*delta((resId2-resId1)-4)*r", CustomGBForce.ParticlePair)
+    contact.addComputedValue("other_rho_forHB", "isO1*isCb2*delta((resId2-resId1)-4)*rho_forHB2", CustomGBForce.ParticlePair)
+    contact.addComputedValue("sigma_forHB", f"isO*0.25*(1-tanh({helix_eta_sigma}*(rho_forHB-{helix_rho_0})))*(1-tanh({helix_eta_sigma}*(other_rho_forHB-{rho_0})))", CustomGBForce.SingleParticle)
+    contact.addComputedValue("weight_forHB", f"isO1*isN2*delta((resId2-resId1)-4)*inSameChain(resId1,resId2)*\
+        (helicalHB_gamma_i(resName1)+helicalHB_gamma_i(resName2))", CustomGBForce.ParticlePair)
+    # calculate the helical hbond energy between residues i and i+4 using the values assigned to particle Oi
+    k_helical *= oa.k_awsem
+    sigma_NO = 0.068
+    sigma_HO = 0.076
+    r_ON = 0.298 # mingchen/weihua used 2.9862, at least for the helical hbond sigma
+    r_OH = 0.206 # mingchen/weihua used 2.1558, at least for the helical hbond sigma
+    theta_ij = f"exp(-(r_Oi_Nip4_forHB-{r_ON})^2/(2*{sigma_NO}^2)-(r_Oi_Hip4_forHB-{r_OH})^2/(2*{sigma_HO}^2))"
+    helical_hbond_energy_string = f"-{k_helical}*((1-sigma)*2+sigma*(-1))*weight_forHB*{theta_ij}" 
+    contact.addEnergyTerm(helical_hbond_energy_string, CustomGBForce.SingleParticle)
+
+    # contact.addComputedValue("isInMembrane", "1", CustomGBForce.SingleParticle)
+    # replace cb with ca for GLY
+    cb_fixed = [x if x > 0 else y for x,y in zip(oa.cb,oa.ca)]
+    none_cb_fixed = [i for i in range(oa.natoms) if i not in cb_fixed]
+    assert len(cb_fixed) == oa.nres, f"Number of atoms in cb_fixed (non-GLY CB and GLY CA atoms), {len(cb_fixed)}, does not match number of residues {oa.nres}."
+    # print(oa.natoms, len(oa.resi), oa.resi, seq)
+    for i in range(oa.natoms):
+        contact.addParticle([gamma_se_map_1_letter[seq[oa.resi[i]]], oa.resi[i], int(i in cb_fixed), int(i in oa.o), int(i in oa.n), int(i in oa.h)]) 
+
+    # SET UP PAIRWISE FORCE
+    def base_contact_energy(inMembrane):
+        # to avoid nested if statements, DIRECT_MASK, WATER_MASK, and PROTEIN_MASK
+        # will be replaced later
+        direct_base = f"DIRECT_MASK gamma_ijm({inMembrane}, resName1, resName2)"
+        water_base = f"WATER_MASK sigma_water*water_gamma_ijm({inMembrane}, resName1, resName2)"
+        protein_base = f"PROTEIN_MASK sigma_protein*protein_gamma_ijm({inMembrane}, resName1, resName2)"
+        return f"res_table({inMembrane},resId1,resId2)*({direct_base}*theta+thetaII*({water_base}+{protein_base}))"
+
+    #Modify the contact force to include z-dependent membrane interaction
+    if z_dependent:
+        contact.addComputedValue("alphaMembrane",
+            f"0.5*tanh({eta_switching}*((z-{membrane_center})+{z_m}))+0.5*tanh({eta_switching}*({z_m}-(z-{membrane_center})))",
+            CustomGBForce.SingleParticle)
+        base_energy_string = f"(1-alphaMembrane1*alphaMembrane2)*{base_contact_energy(0)}\
+                              +(alphaMembrane1*alphaMembrane2)*{base_contact_energy(1)};"
+    else:
+        base_energy_string = f"{base_contact_energy(inMembrane)};"
+
+    # Modify the base energy string to include weights for direct, water, and protein interactions
+    if direct_mask_ij is not None:
+        base_energy_string = base_energy_string.replace("DIRECT_MASK ", "direct_ij(resId1, resId2)*")
+    else:
+        base_energy_string = base_energy_string.replace("DIRECT_MASK ", "")
+    if protein_mask_ij is not None:
+        base_energy_string = base_energy_string.replace("PROTEIN_MASK ", "protein_ij(resId1, resId2)*")
+    else:
+        base_energy_string = base_energy_string.replace("PROTEIN_MASK", "")
+    if water_mask_ij is not None:
+        base_energy_string = base_energy_string.replace("WATER_MASK", "water_ij(resId1, resId2)*")
+    else:
+        base_energy_string = base_energy_string.replace("WATER_MASK", "")
+    
+    #Add other coefficients and definitions to the energy string
+    coefficients = f"-isCb1*isCb2*{k_contact}*"
+    definitions = f"sigma_protein=1-sigma_water;\
+                    theta=0.25*(1+tanh({eta}*(r-{r_min})))*(1+tanh({eta}*({r_max}-r)));\
+                    thetaII=0.25*(1+tanh({eta}*(r-{r_minII})))*(1+tanh({eta}*({r_maxII}-r)));\
+                    sigma_water=0.25*(1-tanh({eta_sigma}*(rho1-{rho_0})))*(1-tanh({eta_sigma}*(rho2-{rho_0})))"
+    
+    energy_string = f"{coefficients}{base_energy_string}{definitions}"
+    #print("Contact energy string: ", energy_string)
+    
+    # use energy expression to the ParticlePair interaction
+    contact.addEnergyTerm(energy_string, CustomGBForce.ParticlePair)
+
+    # SET UP THE BURIAL FORCE
+    if burialPartOn:
+        for i in range(3):
+            contact.addGlobalParameter(f"rho_min_{i}", burial_ro_min[i])
+            contact.addGlobalParameter(f"rho_max_{i}", burial_ro_max[i])
+        for i in range(3):
+            contact.addEnergyTerm(f"-0.5*isCb*{k_burial}*burial_gamma_ij(resName, {i})*\
+                                        (tanh({burial_kappa}*(rho-rho_min_{i}))+\
+                                        tanh({burial_kappa}*(rho_max_{i}-rho)))", CustomGBForce.SingleParticle)
+
+
+    print("Number of atom: ", oa.natoms, "Number of residue: ", len(cb_fixed))
+    # print(len(none_cb_fixed), len(cb_fixed))
+
+    # withExclusion won't affect the result. But may speed up the calculation with CPU but slows down for GPU.
+    if withExclusion:
+        for e1 in none_cb_fixed:
+            for e2 in none_cb_fixed:
+                if e1 > e2:
+                    continue
+                contact.addExclusion(e1, e2)
+        for e1 in none_cb_fixed:
+            for e2 in cb_fixed:
+                contact.addExclusion(e1, e2)
+
+    # contact.setCutoffDistance(1.1)
+    if oa.periodic_box:
+        contact.setNonbondedMethod(contact.CutoffPeriodic)
+        print('\ncontact_term is periodic')
+    else:
+        contact.setNonbondedMethod(contact.CutoffNonPeriodic)
+    print("Contact cutoff ", contact.getCutoffDistance())
+    print("NonbondedMethod: ", contact.getNonbondedMethod())
+    contact.setForceGroup(forceGroup)
+    return contact
+
+def contact_term(
+    oa, k_contact=4.184, k_burial = None, z_dependent=False, z_m=1.5, inMembrane=False, membrane_center=0*angstrom, k_relative_mem=1.0, parametersLocation=None, burialPartOn=True, withExclusion=False, forceGroup=22,
+    gammaName="gamma.dat", burialGammaName="burial_gamma.dat", membraneGammaName="membrane_gamma.dat", r_min=0.45,min_sequence_separation=10,min_sequence_separation_mem=10,
+    direct_mask_ij=None, water_mask_ij=None, protein_mask_ij=None):
     # set up masks to reweight contacts
     if direct_mask_ij is not None and direct_mask_ij.shape != (oa.nres, oa.nres):
         raise ValueError(f"direct_mask_ij should be of shape {(oa.nres, oa.nres)}, but got {direct_mask_ij.shape}")

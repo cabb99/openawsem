@@ -1,0 +1,24 @@
+REM  -------------------- Secondary structure summary -------------------  ~~~~
+REM                                                                        ~~~~
+CHN  crystal_structure.pdb A                                               ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+SEQ  1    PALISWIKR                                             9          ~~~~
+STR       HHHHHHHH                                                         ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+REM                                                                        ~~~~
+LOC  AlphaHelix   PRO    14 A      LYS     21 A                            ~~~~
+REM                                                                        ~~~~
+REM  --------------- Detailed secondary structure assignment-------------  ~~~~
+REM                                                                        ~~~~
+REM  |---Residue---|    |--Structure--|   |-Phi-|   |-Psi-|  |-Area-|      ~~~~
+ASG  PRO A   14    1    H    AlphaHelix    360.00    -46.34     148.7      ~~~~
+ASG  ALA A   15    2    H    AlphaHelix    -67.75    -40.73      82.0      ~~~~
+ASG  LEU A   16    3    H    AlphaHelix    -57.70    -40.75     119.2      ~~~~
+ASG  ILE A   17    4    H    AlphaHelix    -58.49    -48.66      97.6      ~~~~
+ASG  SER A   18    5    H    AlphaHelix    -59.75    -46.13      55.6      ~~~~
+ASG  TRP A   19    6    H    AlphaHelix    -49.46    -59.27     166.8      ~~~~
+ASG  ILE A   20    7    H    AlphaHelix    -53.89    -45.16     111.3      ~~~~
+ASG  LYS A   21    8    H    AlphaHelix    -58.77    -42.49     172.0      ~~~~
+ASG  ARG A   22    9    C          Coil    -60.97    360.00     211.2      ~~~~

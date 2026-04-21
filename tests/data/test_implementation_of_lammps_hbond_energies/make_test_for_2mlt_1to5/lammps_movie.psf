@@ -1,0 +1,38 @@
+PSF
+
+	0 !NTITLE
+
+      25 !NATOM
+       1 PROT 1    GLY  CA   C             0             1           0
+       2 PROT 1    GLY  C    C             0             1           0
+       3 PROT 1    GLY  O    O             0             1           0
+       4 PROT 2    ILE  N    N             0             1           0
+       5 PROT 2    ILE  H    H             0             1           0
+       6 PROT 2    ILE  CA   C             0             1           0
+       7 PROT 2    ILE  C    C             0             1           0
+       8 PROT 2    ILE  O    O             0             1           0
+       9 PROT 2    ILE  CB   C             0             1           0
+      10 PROT 3    GLY  N    N             0             1           0
+      11 PROT 3    GLY  H    H             0             1           0
+      12 PROT 3    GLY  CA   C             0             1           0
+      13 PROT 3    GLY  C    C             0             1           0
+      14 PROT 3    GLY  O    O             0             1           0
+      15 PROT 4    ALA  N    N             0             1           0
+      16 PROT 4    ALA  H    H             0             1           0
+      17 PROT 4    ALA  CA   C             0             1           0
+      18 PROT 4    ALA  C    C             0             1           0
+      19 PROT 4    ALA  O    O             0             1           0
+      20 PROT 4    ALA  CB   C             0             1           0
+      21 PROT 5    VAL  N    N             0             1           0
+      22 PROT 5    VAL  H    H             0             1           0
+      23 PROT 5    VAL  CA   C             0             1           0
+      24 PROT 5    VAL  O    O             0             1           0
+      25 PROT 5    VAL  CB   C             0             1           0
+
+      21 !NBOND
+       1       2       2       3       1       4       2       5
+       5       7       7       8       8       9       7      10
+       8      11      11      13      13      14      14      15
+      13      16      14      17      17      19      19      20
+      20      21      19      22      20      23      23      25
+      25      27

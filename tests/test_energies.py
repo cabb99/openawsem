@@ -56,7 +56,16 @@ def time_many(func):
 def set_up_forces(oa, protein, force_name=None):
     #Define all forces using lambda to delay execution of the setup.
     all_forces = {
-        "Backbone": lambda: openawsem.functionTerms.basicTerms.con_term(oa),
+        # Usually, the backbone is considered to include chain, chi, and excl in addition to con.
+        # Sometimes, it is also considered to include the various Rama terms.
+        #
+        # Even though the "Backbone" key defined here includes only the con term,
+        # the default force_name=None use of this function results in all of the 
+        # following terms being added to the OpenMM System and, since Con, Chain,
+        # Chi, and Excluded all use forceGroup 20, the Con+Chi+Chain+Excluded sum
+        # will be returned when any one of the 4 terms is queried.
+        # 
+        "Backbone": lambda: openawsem.functionTerms.basicTerms.con_term(oa),  
         "Rama": lambda: openawsem.functionTerms.basicTerms.rama_term(oa),
         "Contact": lambda: openawsem.functionTerms.contactTerms.contact_term(oa),
         "Chain": lambda: openawsem.functionTerms.basicTerms.chain_term(oa),
@@ -105,6 +114,8 @@ def analyze(protein, simulation_platform):
     integrator = openmm.LangevinIntegrator(300*openawsem.unit_definitions.kelvin, 1/openawsem.unit_definitions.picosecond, 2*openawsem.unit_definitions.femtoseconds)
     simulation = openmm.app.Simulation(oa.pdb.topology, oa.system, integrator, platform)
 
+    # "Backbone" test returns the Con+Chi+Chain+Excluded sum, since set_up_forces was called with force_name=None
+    # (see the note in the set_up_forces function defined at the beginning of his file)
     forceGroupTable = {"Backbone": 20, "Rama": 21, "Contact": 22, "Fragment": 23, "Membrane": 24, "ER": 25, "TBM_Q": 26, "Beta": 27, "Pap": 28, "Helical": 29,
                        "Q": 1, "Rg": 2, "Qc": 3, "Helix_orientation": 18, "Pulling": 19}
 

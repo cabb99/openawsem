@@ -1,0 +1,101 @@
+PSF
+
+	0 !NTITLE
+
+      77 !NATOM
+       1 PROT 1    GLY  CA   C             0             1           0
+       2 PROT 1    GLY  C    C             0             1           0
+       3 PROT 1    GLY  O    O             0             1           0
+       4 PROT 2    ILE  N    N             0             1           0
+       5 PROT 2    ILE  H    H             0             1           0
+       6 PROT 2    ILE  CA   C             0             1           0
+       7 PROT 2    ILE  C    C             0             1           0
+       8 PROT 2    ILE  O    O             0             1           0
+       9 PROT 2    ILE  CB   C             0             1           0
+      10 PROT 3    GLY  N    N             0             1           0
+      11 PROT 3    GLY  H    H             0             1           0
+      12 PROT 3    GLY  CA   C             0             1           0
+      13 PROT 3    GLY  C    C             0             1           0
+      14 PROT 3    GLY  O    O             0             1           0
+      15 PROT 4    ALA  N    N             0             1           0
+      16 PROT 4    ALA  H    H             0             1           0
+      17 PROT 4    ALA  CA   C             0             1           0
+      18 PROT 4    ALA  C    C             0             1           0
+      19 PROT 4    ALA  O    O             0             1           0
+      20 PROT 4    ALA  CB   C             0             1           0
+      21 PROT 5    VAL  N    N             0             1           0
+      22 PROT 5    VAL  H    H             0             1           0
+      23 PROT 5    VAL  CA   C             0             1           0
+      24 PROT 5    VAL  C    C             0             1           0
+      25 PROT 5    VAL  O    O             0             1           0
+      26 PROT 5    VAL  CB   C             0             1           0
+      27 PROT 6    LEU  N    N             0             1           0
+      28 PROT 6    LEU  H    H             0             1           0
+      29 PROT 6    LEU  CA   C             0             1           0
+      30 PROT 6    LEU  C    C             0             1           0
+      31 PROT 6    LEU  O    O             0             1           0
+      32 PROT 6    LEU  CB   C             0             1           0
+      33 PROT 7    LYS  N    N             0             1           0
+      34 PROT 7    LYS  H    H             0             1           0
+      35 PROT 7    LYS  CA   C             0             1           0
+      36 PROT 7    LYS  C    C             0             1           0
+      37 PROT 7    LYS  O    O             0             1           0
+      38 PROT 7    LYS  CB   C             0             1           0
+      39 PROT 8    VAL  N    N             0             1           0
+      40 PROT 8    VAL  H    H             0             1           0
+      41 PROT 8    VAL  CA   C             0             1           0
+      42 PROT 8    VAL  C    C             0             1           0
+      43 PROT 8    VAL  O    O             0             1           0
+      44 PROT 8    VAL  CB   C             0             1           0
+      45 PROT 9    LEU  N    N             0             1           0
+      46 PROT 9    LEU  H    H             0             1           0
+      47 PROT 9    LEU  CA   C             0             1           0
+      48 PROT 9    LEU  C    C             0             1           0
+      49 PROT 9    LEU  O    O             0             1           0
+      50 PROT 9    LEU  CB   C             0             1           0
+      51 PROT 10   THR  N    N             0             1           0
+      52 PROT 10   THR  H    H             0             1           0
+      53 PROT 10   THR  CA   C             0             1           0
+      54 PROT 10   THR  C    C             0             1           0
+      55 PROT 10   THR  O    O             0             1           0
+      56 PROT 10   THR  CB   C             0             1           0
+      57 PROT 11   THR  N    N             0             1           0
+      58 PROT 11   THR  H    H             0             1           0
+      59 PROT 11   THR  CA   C             0             1           0
+      60 PROT 11   THR  C    C             0             1           0
+      61 PROT 11   THR  O    O             0             1           0
+      62 PROT 11   THR  CB   C             0             1           0
+      63 PROT 12   GLY  N    N             0             1           0
+      64 PROT 12   GLY  H    H             0             1           0
+      65 PROT 12   GLY  CA   C             0             1           0
+      66 PROT 12   GLY  C    C             0             1           0
+      67 PROT 12   GLY  O    O             0             1           0
+      68 PROT 13   LEU  N    N             0             1           0
+      69 PROT 13   LEU  H    H             0             1           0
+      70 PROT 13   LEU  CA   C             0             1           0
+      71 PROT 13   LEU  C    C             0             1           0
+      72 PROT 13   LEU  O    O             0             1           0
+      73 PROT 13   LEU  CB   C             0             1           0
+      74 PROT 14   PRO  N    N             0             1           0
+      75 PROT 14   PRO  CA   C             0             1           0
+      76 PROT 14   PRO  O    O             0             1           0
+      77 PROT 14   PRO  CB   C             0             1           0
+
+      66 !NBOND
+       1       2       2       3       1       4       2       5
+       5       7       7       8       8       9       7      10
+       8      11      11      13      13      14      14      15
+      13      16      14      17      17      19      19      20
+      20      21      19      22      20      23      23      25
+      25      26      26      27      25      28      26      29
+      29      31      31      32      32      33      31      34
+      32      35      35      37      37      38      38      39
+      37      40      38      41      41      43      43      44
+      44      45      43      46      44      47      47      49
+      49      50      50      51      49      52      50      53
+      53      55      55      56      56      57      55      58
+      56      59      59      61      61      62      62      63
+      61      64      62      65      65      67      67      68
+      68      69      67      70      68      71      71      73
+      73      74      74      75      73      76      74      77
+      77      78      78      80

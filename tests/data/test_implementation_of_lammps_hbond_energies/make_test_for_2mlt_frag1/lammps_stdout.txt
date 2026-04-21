@@ -1,0 +1,340 @@
+LAMMPS (29 Aug 2024 - Update 1)
+Reading data file ...
+  orthogonal box = (-200 -200 -200) to (200 200 200)
+  1 by 1 by 1 MPI processor grid
+  reading atoms ...
+  42 atoms
+  scanning bonds ...
+  3 = max bonds/atom
+  orthogonal box = (-200.04 -200.04 -200.04) to (200.04 200.04 200.04)
+  1 by 1 by 1 MPI processor grid
+  reading bonds ...
+  54 bonds
+Finding 1-2 1-3 1-4 neighbors ...
+  special bond factors lj:    0        1        1       
+  special bond factors coul:  0        1        1       
+     5 = max # of 1-2 neighbors
+     5 = max # of special neighbors
+  special bonds CPU = 0.000 seconds
+  read_data CPU = 0.012 seconds
+14 atoms in group alpha_carbons
+14 atoms in group beta_atoms
+14 atoms in group oxygens
+Chain flag on
+Chi flag on
+Rama flag on
+Rama_P flag on
+SSWeight flag on
+ABC flag on
+Dssp_Hdrgn flag on
+P_AP flag on
+Water flag on
+Burial flag on
+Helix flag on
+
+Fix backbone Pair List cutoff 15.0000
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Your simulation uses code contributions which should be cited:
+- Type Label Framework: https://doi.org/10.1021/acs.jpcb.3c08419
+The log file lists these citations in BibTeX format.
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Generated 0 of 10 mixed pair_coeff terms from geometric mixing rule
+Neighbor list info ...
+  update: every = 1 steps, delay = 5 steps, check = yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 14.5
+  ghost atom cutoff = 25
+  binsize = 7.25, bins = 3 2 2
+  2 neighbor lists, perpetual/occasional/extra = 2 0 0
+  (1) pair vexcluded, perpetual
+      attributes: half, newton on
+      pair build: half/bin/newton
+      stencil: half/bin/3d
+      bin: standard
+  (2) fix backbone, perpetual
+      attributes: half, newton on, cut 25
+      pair build: half/bin/newton
+      stencil: half/bin/3d
+      bin: standard
+Setting up Verlet run ...
+  Unit style    : real
+  Current step  : 0
+  Time step     : 2
+theta: 0.999902
+theta: 0.907789
+theta: 0.977168
+theta: 2.95718e-11
+theta: 9.51791e-06
+theta: 0.999987
+theta: 0.999998
+theta: 0.995307
+theta: 0.053473
+theta: 0.8969
+theta: 0.000277011
+theta: 0.99136
+theta: 3.46055e-05
+theta: 5.56847e-07
+theta: 0.99684
+theta: 0.0974702
+theta: 1.34021e-07
+theta: 0.999997
+theta: 0.014443
+theta: 1.84717e-05
+theta: 0.999779
+theta: 0.991874
+theta: 1.45192e-10
+theta: 1.59765e-06
+theta: 0.0882217
+theta: 0.999285
+theta: 0.99941
+theta: 3.98709e-10
+theta: 1.76004e-08
+theta: 0.999907
+theta: 1.4882e-12
+theta: 4.17318e-08
+theta: 2.36855e-08
+theta: 2.72717e-08
+theta: 1.79011e-08
+theta: 0.00934301
+theta: 0.999163
+ires: 0
+    helix_par.kappa_sigma: 7
+    helix_par.treshold: 3
+    helix_ro[ires]: 2.88486
+ires: 1
+    helix_par.kappa_sigma: 7
+    helix_par.treshold: 3
+    helix_ro[ires]: 1.99999
+ires: 2
+    helix_par.kappa_sigma: 7
+    helix_par.treshold: 3
+    helix_ro[ires]: 2.94558
+ires: 3
+    helix_par.kappa_sigma: 7
+    helix_par.treshold: 3
+    helix_ro[ires]: 1.89947
+ires: 4
+    helix_par.kappa_sigma: 7
+    helix_par.treshold: 3
+    helix_ro[ires]: 4.06677
+ires: 5
+    helix_par.kappa_sigma: 7
+    helix_par.treshold: 3
+    helix_ro[ires]: 2.06819
+ires: 6
+    helix_par.kappa_sigma: 7
+    helix_par.treshold: 3
+    helix_ro[ires]: 3.87993
+ires: 7
+    helix_par.kappa_sigma: 7
+    helix_par.treshold: 3
+    helix_ro[ires]: 3.08379
+ires: 8
+    helix_par.kappa_sigma: 7
+    helix_par.treshold: 3
+    helix_ro[ires]: 2.09739
+ires: 9
+    helix_par.kappa_sigma: 7
+    helix_par.treshold: 3
+    helix_ro[ires]: 1.01422
+ires: 10
+    helix_par.kappa_sigma: 7
+    helix_par.treshold: 3
+    helix_ro[ires]: 1.08944
+ires: 11
+    helix_par.kappa_sigma: 7
+    helix_par.treshold: 3
+    helix_ro[ires]: 1.99845
+ires: 12
+    helix_par.kappa_sigma: 7
+    helix_par.treshold: 3
+    helix_ro[ires]: 1.99932
+ires: 13
+    helix_par.kappa_sigma: 7
+    helix_par.treshold: 3
+    helix_ro[ires]: 1.00851
+se[j_resno]: V
+xn[j]: 39.9773 -9.00925 20.9482
+xh[j]: 40.7164 -9.15472 21.5875
+dr_NO: 0.294391
+dr_HO: 0.156952
+dr_NO_sigma: 0.636658
+dr_HO_sigma: 0.271731
+R_NO: 3.28059
+helix_NO_zero: 2.9862
+R_HO: 2.31275
+helix_HO_zero: 2.1558
+helix_sigma_h[i_resno]: 0.833686
+helix_sigma_h[j_resno]: 3.26503e-07
+helix_gamma_p: 2
+helix_gamma_w: -1
+se[j_resno]: L
+xn[j]: 40.6928 -7.04661 19.2501
+xh[j]: 41.417 -7.55012 19.7293
+dr_NO: -0.20781
+dr_HO: -0.335669
+dr_NO_sigma: -0.449416
+dr_HO_sigma: -0.581144
+R_NO: 2.77839
+helix_NO_zero: 2.9862
+R_HO: 1.82013
+helix_HO_zero: 2.1558
+helix_sigma_h[i_resno]: 0.999999
+helix_sigma_h[j_resno]: 0.999998
+helix_gamma_p: 2
+helix_gamma_w: -1
+se[j_resno]: K
+xn[j]: 39.9323 -8.04728 16.6848
+xh[j]: 40.3311 -8.6377 17.3006
+dr_NO: 0.170671
+dr_HO: 0.115223
+dr_NO_sigma: 0.369099
+dr_HO_sigma: 0.199487
+R_NO: 3.15687
+helix_NO_zero: 2.9862
+R_HO: 2.27102
+helix_HO_zero: 2.1558
+helix_sigma_h[i_resno]: 0.681755
+helix_sigma_h[j_resno]: 4.46578e-06
+helix_gamma_p: 2
+helix_gamma_w: -1
+se[j_resno]: V
+xn[j]: 37.1505 -7.89867 16.913
+xh[j]: 37.6496 -8.09854 17.7077
+dr_NO: 0.380817
+dr_HO: 0.341568
+dr_NO_sigma: 0.823567
+dr_HO_sigma: 0.591358
+R_NO: 3.36702
+helix_NO_zero: 2.9862
+R_HO: 2.49737
+helix_HO_zero: 2.1558
+helix_sigma_h[i_resno]: 1
+helix_sigma_h[j_resno]: 0.236293
+helix_gamma_p: 2
+helix_gamma_w: -1
+se[j_resno]: L
+xn[j]: 36.7614 -5.19712 17.0477
+xh[j]: 37.5294 -5.58949 17.4784
+dr_NO: 0.0210315
+dr_HO: -0.0481428
+dr_NO_sigma: 0.0454833
+dr_HO_sigma: -0.0833498
+R_NO: 3.00723
+helix_NO_zero: 2.9862
+R_HO: 2.10766
+helix_HO_zero: 2.1558
+helix_sigma_h[i_resno]: 3.26503e-07
+helix_sigma_h[j_resno]: 0.999997
+helix_gamma_p: 2
+helix_gamma_w: -1
+se[j_resno]: T
+xn[j]: 37.3155 -4.5111 14.5436
+xh[j]: 37.7126 -5.31463 14.9654
+dr_NO: 0.214313
+dr_HO: 0.195981
+dr_NO_sigma: 0.463479
+dr_HO_sigma: 0.339302
+R_NO: 3.20051
+helix_NO_zero: 2.9862
+R_HO: 2.35178
+helix_HO_zero: 2.1558
+helix_sigma_h[i_resno]: 0.999998
+helix_sigma_h[j_resno]: 1
+helix_gamma_p: 2
+helix_gamma_w: -1
+se[j_resno]: T
+xn[j]: 35.3911 -5.83371 12.8898
+xh[j]: 35.6843 -6.1685 13.7083
+dr_NO: 0.191923
+dr_HO: 0.2212
+dr_NO_sigma: 0.415059
+dr_HO_sigma: 0.382964
+R_NO: 3.17812
+helix_NO_zero: 2.9862
+R_HO: 2.377
+helix_HO_zero: 2.1558
+helix_sigma_h[i_resno]: 4.46578e-06
+helix_sigma_h[j_resno]: 1
+helix_gamma_p: 2
+helix_gamma_w: -1
+se[j_resno]: G
+xn[j]: 32.7717 -6.63505 14.257
+xh[j]: 33.5537 -6.9538 14.6308
+dr_NO: 0.101418
+dr_HO: 0.40234
+dr_NO_sigma: 0.219329
+dr_HO_sigma: 0.696572
+R_NO: 3.08762
+helix_NO_zero: 2.9862
+R_HO: 2.55814
+helix_HO_zero: 2.1558
+helix_sigma_h[i_resno]: 0.236293
+helix_sigma_h[j_resno]: 0.999999
+helix_gamma_p: 2
+helix_gamma_w: -1
+se[j_resno]: L
+xn[j]: 32.1077 -4.32336 15.9151
+xh[j]: 33.0074 -4.54661 15.8943
+dr_NO: 1.75124
+dr_HO: 1.90001
+dr_NO_sigma: 3.78729
+dr_HO_sigma: 3.2895
+R_NO: 4.73744
+helix_NO_zero: 2.9862
+R_HO: 4.05581
+helix_HO_zero: 2.1558
+helix_sigma_h[i_resno]: 0.999997
+helix_sigma_h[j_resno]: 0.999999
+helix_gamma_p: 2
+helix_gamma_w: -1
+se[j_resno]: P
+xn[j]: 31.6086 -2.06535 14.1476
+xh[j]: 32.3653 -2.63615 13.8907
+dr_NO: 2.5641
+dr_HO: 2.45946
+dr_NO_sigma: 5.54521
+dr_HO_sigma: 4.25807
+R_NO: 5.5503
+helix_NO_zero: 2.9862
+R_HO: 4.61526
+helix_HO_zero: 2.1558
+helix_sigma_h[i_resno]: 1
+helix_sigma_h[j_resno]: 1
+helix_gamma_p: 2
+helix_gamma_w: -1
+Per MPI rank memory allocation (min/avg/max) = 7.178 | 7.178 | 7.178 Mbytes
+   Step          Temp          E_pair         E_mol          TotEng         Press          Volume    
+         0   300            2.1331833      184.92302      223.72017     -35334.618      2775.6115    
+Loop time of 7.48e-07 on 1 procs for 0 steps with 42 atoms
+
+0.0% CPU use with 1 MPI tasks x no OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0          | 0          | 0          |   0.0 |  0.00
+Bond    | 0          | 0          | 0          |   0.0 |  0.00
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 0          | 0          | 0          |   0.0 |  0.00
+Output  | 0          | 0          | 0          |   0.0 |  0.00
+Modify  | 0          | 0          | 0          |   0.0 |  0.00
+Other   |            | 7.48e-07   |            |       |100.00
+
+Nlocal:             42 ave          42 max          42 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:              0 ave           0 max           0 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:            699 ave         699 max         699 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 699
+Ave neighs/atom = 16.642857
+Ave special neighs/atom = 2.5714286
+Neighbor list builds = 0
+Dangerous builds = 0
+Total wall time: 0:00:00
