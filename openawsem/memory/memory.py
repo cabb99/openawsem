@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import pickle
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -311,12 +312,42 @@ class MemoryWells(FragmentMemory):
             fragments.append(window)
         out = cls.from_fragments(fragments, min_seq_sep=min_seq_sep, max_seq_sep=max_seq_sep,
                                  well_width=well_width)
-        out.provenance.update({"method": "legacy_frags_mem", "source": path, "n_fragments": int(len(table))})
+        # record the fragments used (absolute gro paths so the memory re-reads from anywhere)
+        used = [{"location": str((base / row.location).resolve()),
+                 "target_start": int(row.target_start), "fragment_start": int(row.fragment_start),
+                 "frag_len": int(row.frag_len), "weight": float(row.weight)}
+                for row in table.itertuples(index=False)]
+        out.provenance.update({"method": "legacy_frags_mem", "source": path,
+                               "n_fragments": int(len(table)), "fragments": used})
         return out
 
-    def to_frags_mem(self, path, gro_dir=None):
-        """Write provenance of the fragments behind this memory (placeholder for Phase 1B)."""
-        raise NotImplementedError("to_frags_mem lands with the structure backends (Phase 1B)")
+    def to_frags_mem(self, path, gro_dir=None, target="query") -> Path:
+        """Write a legacy ``frags.mem`` for the fragments behind this memory.
+
+        Requires fragment provenance (``provenance['fragments']``), recorded by
+        :meth:`from_frags_mem` and by the structure backends.  With ``gro_dir`` the gro
+        files are copied there and referenced relatively; otherwise their stored
+        (absolute) paths are written.
+        """
+        used = self.provenance.get("fragments")
+        if not used:
+            raise ValueError("no fragment provenance to write; build the memory from a frags.mem "
+                             "or a structure backend that records fragments")
+        path = Path(path)
+        if gro_dir is not None:
+            gro_dir = Path(gro_dir)
+            gro_dir.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(f"[Target]\n{target}\n\n[Memories]\n")
+            for fr in used:
+                location = fr["location"]
+                if gro_dir is not None:
+                    dest = gro_dir / Path(location).name
+                    shutil.copy(location, dest)
+                    location = str(dest)
+                fh.write(f"{location} {fr['target_start']} {fr['fragment_start']} "
+                         f"{fr['frag_len']} {fr['weight']}\n")
+        return path
 
     def deduplicate(self) -> "MemoryWells":
         return type(self)(self.drop_duplicates(subset=WELLS_COLUMNS).reset_index(drop=True))

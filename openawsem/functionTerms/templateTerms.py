@@ -104,7 +104,7 @@ def fragment_memory_term(oa, k_fm=0.04184, frag_file_list_file="./frag.mem", npy
 
     if isinstance(fragment_memory, FragmentMemory):
         memory = fragment_memory
-    elif fragment_memory is not None and str(fragment_memory).endswith(".parquet"):
+    elif fragment_memory is not None and str(fragment_memory).endswith((".json", ".parquet")):
         memory = FragmentMemory.read(fragment_memory)
     else:
         memory = MemoryWells.from_frags_mem(frag_file_list_file, min_seq_sep=min_seq_sep,

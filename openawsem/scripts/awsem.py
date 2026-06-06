@@ -45,8 +45,8 @@ def main():
         print(remaining_args)
         convertOpenmmTrajectoryToStandardMovie.main(remaining_args)
     elif args.subcommand == 'align_fragments':
-        from openawsem.helperFunctions import align_fragments
-        align_fragments.main(remaining_args)
+        from openawsem.memory import align
+        align.main(remaining_args)
     elif args.subcommand == 'reconstruct':
         from openawsem.helperFunctions import reconstruct
         reconstruct.main(remaining_args)

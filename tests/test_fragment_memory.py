@@ -271,3 +271,57 @@ def test_golden_1r69_table_matches_legacy(oa_1r69):
     assert set(index) == set(golden)
     for pair, k in index.items():
         np.testing.assert_allclose(table[k], golden[pair], atol=1e-4)
+
+
+# --------------------------------------------------------------------------- #
+# align_fragments (moved into the memory module) + score
+# --------------------------------------------------------------------------- #
+def test_align_fragments_score_1r69():
+    import openawsem.memory.align as align
+    fasta, frags = "examples/1r69/1r69.fasta", "examples/1r69/frags.mem"
+    if not (Path(fasta).exists() and Path(frags).exists()):
+        pytest.skip("1r69 inputs missing")
+    df = align.align_fragments(fasta, frags, working_directory="examples/1r69")
+    n_lines = len(pd.read_csv(frags, skiprows=4, sep=r"\s+", comment="#",
+                              names=["a", "b", "c", "d", "e"]))
+    assert len(df) == n_lines > 0
+    assert ((df["score"] >= 0) & (df["score"] <= 1)).all()
+    assert df["score"].mean() > 0.5           # BLAST fragments match the target well
+    assert (df["score"] == 1.0).any()          # some fragments are identical to the target
+    # deterministic
+    pd.testing.assert_frame_equal(df, align.align_fragments(fasta, frags, working_directory="examples/1r69"))
+    # score == independent identity recompute, for the first fragment
+    target = "".join(align.parse_fasta(fasta).values())
+    first = df.iloc[0]
+    span = target[first.seq_init - 1: first.seq_init - 1 + first.length]
+    expected = sum(a == b for a, b in zip(first.fragment, span)) / first.length
+    assert abs(first.score - expected) < 1e-12
+
+
+# --------------------------------------------------------------------------- #
+# Phase 4 bridge: term consumes a memory object/JSON; frags.mem round-trip
+# --------------------------------------------------------------------------- #
+def test_term_accepts_memory_object_and_json(tmp_path, oa_1r69):
+    import openawsem.functionTerms.templateTerms as templateTerms
+    memory = MemoryWells.from_frags_mem("examples/1r69/frags.mem")
+    json_path = tmp_path / "mem.json"
+    memory.save(json_path)
+    f_obj = templateTerms.fragment_memory_term(oa_1r69, fragment_memory=memory,
+                                               UseSavedFragTable=False, npy_frag_table=None)
+    f_json = templateTerms.fragment_memory_term(oa_1r69, fragment_memory=str(json_path),
+                                                UseSavedFragTable=False, npy_frag_table=None)
+    assert f_obj.getNumBonds() == f_json.getNumBonds() > 0
+
+
+def test_frags_mem_roundtrip_1r69(tmp_path, oa_1r69):
+    m1 = MemoryWells.from_frags_mem("examples/1r69/frags.mem")
+    out = tmp_path / "frags.mem"
+    m1.to_frags_mem(out)  # writes absolute gro paths from the fragment provenance
+    m2 = MemoryWells.from_frags_mem(out)
+    p1, t1 = m1._tabulate_arrays(oa_1r69, 0.0, 5.0, 0.01)
+    p2, t2 = m2._tabulate_arrays(oa_1r69, 0.0, 5.0, 0.01)
+    assert set(p1) == set(p2)
+    i1 = {p: k for k, p in enumerate(p1)}
+    i2 = {p: k for k, p in enumerate(p2)}
+    for pair in p1:
+        np.testing.assert_allclose(t1[i1[pair]], t2[i2[pair]], atol=1e-9)
