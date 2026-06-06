@@ -28,7 +28,8 @@ dependencies = [
     "pandas",
     "openmm",
     "pdbfixer",
-    "mdtraj"
+    "mdtraj",
+    "molscene"
 ]
 
 # Update the urls once the hosting is set up.

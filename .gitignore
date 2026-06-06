@@ -152,6 +152,7 @@ tests/data/test_implementation_of_lammps_hbond_energies/6klw*
 tests/data/test_implementation_of_lammps_hbond_energies/2ohx_A/*
 tests/data/test_implementation_of_lammps_hbond_energies/openawsem_computed_energies.txt
 tests/data/*frags.npy
+tests/data/*frags.npy.meta.json
 tests/data/analysis_commandline_args.txt
 tests/data/commandline_args.txt
 tests/data/split_energies
