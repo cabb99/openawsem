@@ -22,11 +22,12 @@ def _require_molscene():
 
 
 def cacb_nm(scene_or_frame) -> pd.DataFrame:
-    """Return CA/CB atoms as ``[resid, name, resname, x, y, z]`` in **nm** (Angstrom/10)."""
-    frame = pd.DataFrame(scene_or_frame)[["resid", "name", "resname", "x", "y", "z"]]
+    """Return CA/CB atoms as ``[chain, resid, name, resname, x, y, z]`` in **nm** (Angstrom/10)."""
+    frame = pd.DataFrame(scene_or_frame)[["chain", "resid", "name", "resname", "x", "y", "z"]]
     frame = frame[frame["name"].isin(_CA_CB)].copy()
     xyz = frame[["x", "y", "z"]].to_numpy(dtype=float) / 10.0
     return pd.DataFrame({
+        "chain": frame["chain"].astype(object).to_numpy(),
         "resid": frame["resid"].astype("int64").to_numpy(),
         "name": frame["name"].astype(object).to_numpy(),
         "resname": frame["resname"].astype(object).to_numpy(),

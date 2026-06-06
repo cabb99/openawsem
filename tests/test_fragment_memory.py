@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 
 from openawsem.memory import FragmentMemory, MemoryTable, MemoryWells, available_methods
-from openawsem.memory.generators import Registry
+from openawsem.memory.generators import LocalBlast, Registry, SingleStructure, selection
 
 data_path = Path("tests") / "data"
 
@@ -131,12 +131,102 @@ def test_cache_key_invalidation():
     assert k != m2.cache_key(rmin=0, rmax=5, dr=0.01)           # data change
 
 
-def test_registry_experimental_raises():
-    assert available_methods() == []  # nothing usable yet (Phase 1B fills single/local_blast)
+def test_registry_usable_and_experimental():
+    methods = available_methods()
+    assert "single" in methods and "local_blast" in methods
+    assert isinstance(Registry.create("single"), SingleStructure)
     with pytest.raises(NotImplementedError):
-        Registry.create("local_blast")
+        Registry.create("alphafold")  # experimental stub
     with pytest.raises(ValueError):
         Registry.create("nonexistent_method")
+
+
+# --------------------------------------------------------------------------- #
+# selection (deterministic ranking + exactly-N)
+# --------------------------------------------------------------------------- #
+def _hit(query_start, k, evalue=0.1, bitscore=100.0):
+    return dict(query_start=query_start, query_end=query_start + 8, pdb_id=f"p{query_start}{k}",
+                chain="A", subject_start=k + 1, subject_end=k + 9, evalue=evalue, bitscore=bitscore)
+
+
+def test_selection_exactly_n_per_position():
+    recs = [_hit(q, k, evalue=0.1 * k, bitscore=100 - k)
+            for q, count in [(1, 5), (2, 1), (3, 4)] for k in range(count)]
+    kept, shortfall = selection.select_n_per_position(pd.DataFrame(recs), 3, report=True)
+    counts = kept.groupby("query_start").size().to_dict()
+    assert counts == {1: 3, 2: 1, 3: 3}
+    assert set(shortfall.index) == {2}  # only position 2 has < 3 hits
+
+
+def test_selection_is_deterministic_under_shuffle():
+    hits = pd.DataFrame([_hit(1, k, evalue=0.01 * k, bitscore=100 - k) for k in range(10)])
+    a = selection.select_n_per_position(hits, 4)
+    b = selection.select_n_per_position(hits.sample(frac=1, random_state=1).reset_index(drop=True), 4)
+    pd.testing.assert_frame_equal(a, b)
+
+
+def test_selection_deduplicates():
+    hits = pd.DataFrame([_hit(1, 0)] * 3)
+    assert len(selection.select_n_per_position(hits, 20)) == 1
+
+
+def test_localblast_parse_sseqid():
+    assert LocalBlast._parse_sseqid("pdb|4V12|A") == ("4v12", "A")
+    assert LocalBlast._parse_sseqid("4v12_A") == ("4v12", "A")
+
+
+# --------------------------------------------------------------------------- #
+# SingleStructure backend
+# --------------------------------------------------------------------------- #
+def test_single_structure_functional():
+    pytest.importorskip("molscene")
+    pdb = "tests/data/1mbn-crystal_structure.pdb"
+    if not Path(pdb).exists():
+        pytest.skip("test structure missing")
+    mem = SingleStructure(pdb, weight=20).generate()
+    assert isinstance(mem, MemoryWells) and len(mem) > 0
+    seps = (mem["resid_j"] - mem["resid_i"]).to_numpy()
+    assert seps.min() >= 3 and seps.max() <= 9
+    assert set(mem["name_i"]).issubset({"CA", "CB"}) and (mem["weight"] == 20).all()
+
+
+def test_single_structure_matches_legacy_geometry():
+    """SingleStructure(pdb) reproduces the legacy single memory's pair set and geometry
+    (up to the .gro's 3-decimal coordinate rounding)."""
+    pytest.importorskip("molscene")
+    pdb = "tests/data/1mbn-crystal_structure.pdb"
+    mem_file = data_path / "1mbn-single_frags.mem"
+    if not (Path(pdb).exists() and mem_file.exists()):
+        pytest.skip("inputs missing")
+    keys = ["resid_i", "name_i", "resid_j", "name_j"]
+    new = SingleStructure(pdb, weight=20).generate().sort_values(keys).reset_index(drop=True)
+    legacy = MemoryWells.from_frags_mem(mem_file).sort_values(keys).reset_index(drop=True)
+    merged = new.merge(legacy, on=keys, suffixes=("_new", "_leg"))
+    assert len(merged) == len(new) == len(legacy)  # identical restraint set
+    np.testing.assert_allclose(merged["r_mean_new"], merged["r_mean_leg"], atol=2e-3)  # gro rounding
+
+
+# --------------------------------------------------------------------------- #
+# CLI
+# --------------------------------------------------------------------------- #
+def test_cli_single(tmp_path):
+    pytest.importorskip("molscene")
+    pdb = "tests/data/1mbn-crystal_structure.pdb"
+    if not Path(pdb).exists():
+        pytest.skip("test structure missing")
+    from openawsem.memory import cli
+    out = tmp_path / "mem.json"
+    cli.main(["--method", "single", "--structure", pdb, "--weight", "20", "--out", str(out)])
+    assert out.exists()
+    loaded = MemoryWells.read(out)
+    assert isinstance(loaded, MemoryWells) and len(loaded) > 0
+
+
+def test_cli_list_methods(capsys):
+    from openawsem.memory import cli
+    cli.main(["--list-methods"])
+    out = capsys.readouterr().out
+    assert "single" in out and "local_blast" in out
 
 
 # --------------------------------------------------------------------------- #

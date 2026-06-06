@@ -16,6 +16,7 @@ def main():
     subparsers.add_parser('align_fragments', help='Aligns fragments to a fasta file', add_help=False)
     subparsers.add_parser('fix_aminoacids', help='Fixes the aminoacids from a movie or native', add_help=False)
     subparsers.add_parser('reconstruct', help='Reconstruct all-atom structure from CG model', add_help=False)
+    subparsers.add_parser('generate-memory', help='Generate a fragment memory from a sequence/structure', add_help=False)
 
 
     args, remaining_args = parser.parse_known_args()
@@ -49,6 +50,9 @@ def main():
     elif args.subcommand == 'reconstruct':
         from openawsem.helperFunctions import reconstruct
         reconstruct.main(remaining_args)
+    elif args.subcommand == 'generate-memory':
+        from openawsem.memory import cli
+        cli.main(remaining_args)
     else:
         parser.print_help()
 
