@@ -23,7 +23,12 @@ RANK_ORDER = [("query_start", True), ("evalue", True), ("bitscore", False),
 
 
 def deduplicate_hits(hits: pd.DataFrame) -> pd.DataFrame:
-    """Drop duplicate hits (same pdb/chain/ranges), keeping the first occurrence."""
+    """Drop duplicate hits (same pdb/chain/ranges), keeping the first occurrence.
+
+    Rank first if you want "first" to mean "best": across PSI-BLAST iterations the same
+    alignment recurs with different e-values, so :func:`select_n_per_position` ranks
+    before de-duplicating to keep the best-scoring copy.
+    """
     keys = [c for c in HIT_KEY if c in hits.columns]
     return hits.drop_duplicates(subset=keys).reset_index(drop=True)
 
@@ -46,7 +51,8 @@ def select_n_per_position(hits: pd.DataFrame, n: int, *, position_col: str = "qu
     kept.  With ``report=True`` also returns a Series of positions that came up short
     (fewer than ``n`` hits).
     """
-    ranked = rank_hits(deduplicate_hits(hits))
+    # rank first so de-dup keeps the best-scoring copy of a hit recurring across iterations
+    ranked = deduplicate_hits(rank_hits(hits))
     if position_col not in ranked.columns or len(ranked) == 0:
         kept = ranked
     else:

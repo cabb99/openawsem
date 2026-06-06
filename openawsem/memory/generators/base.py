@@ -80,9 +80,13 @@ class StructureBackend(FragmentBackend):
         """Aligned fragment: CA/CB of the hit's subject range, mapped to target residues.
 
         Uses the (gap-free) hit alignment: subject residue ``s`` -> target residue
-        ``query_start + (s - subject_start)``.
+        ``query_start + (s - subject_start)``.  If the hit carries the BLAST subject
+        sequence (``sseq``), the by-residue selection is validated against it and the
+        fragment is dropped on a mismatch -- a cheap guard against structures whose ATOM
+        numbering differs from the database sequence positions.
         """
         from openawsem.memory import _molscene
+        from openawsem.memory.align import THREE_TO_ONE
         atoms = _molscene.cacb_nm(scene)
         if hit.get("chain"):
             atoms = atoms[atoms["chain"] == hit["chain"]]
@@ -90,6 +94,17 @@ class StructureBackend(FragmentBackend):
         window = atoms[(atoms["resid"] >= lo) & (atoms["resid"] <= hi)].copy()
         window["target_resid"] = window["resid"] - lo + int(hit["query_start"])
         window["weight"] = float(hit.get("weight", self.weight))
+
+        sseq = hit.get("sseq")
+        if sseq:
+            sseq = sseq.replace("-", "")
+            ca = window[window["name"] == "CA"].sort_values("resid")
+            got = "".join(ca["resname"].map(THREE_TO_ONE).fillna("X"))
+            identity = sum(a == b for a, b in zip(got, sseq))
+            if len(got) != len(sseq) or identity < 0.8 * len(sseq):
+                logger.warning("residue-mapping mismatch for %s/%s %d-%d (%r vs sseq %r); dropping",
+                               hit.get("pdb_id"), hit.get("chain"), lo, hi, got, sseq)
+                return window.iloc[0:0]
         return window
 
     def generate(self, sequence) -> "MemoryWells":

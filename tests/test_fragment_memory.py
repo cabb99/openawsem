@@ -8,6 +8,8 @@ OpenMM + molscene).
 import warnings
 
 warnings.filterwarnings("ignore")
+import os
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -325,3 +327,41 @@ def test_frags_mem_roundtrip_1r69(tmp_path, oa_1r69):
     i2 = {p: k for k, p in enumerate(p2)}
     for pair in p1:
         np.testing.assert_allclose(t1[i1[pair]], t2[i2[pair]], atol=1e-9)
+
+
+# --------------------------------------------------------------------------- #
+# local_blast against the local cullpdb DB (gated on DB + psiblast; network opt-in)
+# --------------------------------------------------------------------------- #
+@pytest.fixture(scope="module")
+def cullpdb_db():
+    import openawsem
+    db = str(openawsem.data_path.blast)
+    if not Path(db).exists():
+        pytest.skip("cullpdb BLAST database not present")
+    if shutil.which("psiblast") is None:
+        pytest.skip("psiblast not on PATH")
+    return db
+
+
+def test_local_blast_search_deterministic(cullpdb_db):
+    import openawsem
+    seq = openawsem.helperFunctions.myFunctions.read_fasta("examples/1r69/1r69.fasta")
+    lb = LocalBlast(database=cullpdb_db, fragment_length=9, evalue=10000)
+    h1 = lb._psiblast(seq[:9])
+    assert h1 is not None and len(h1) > 0
+    assert {"pdb_id", "chain", "qstart", "sstart", "sseq", "evalue", "bitscore"} <= set(h1.columns)
+    assert (h1["pdb_id"] == "1r69").any()  # the target's own chain is in the DB
+    pd.testing.assert_frame_equal(h1.reset_index(drop=True),
+                                  lb._psiblast(seq[:9]).reset_index(drop=True))  # deterministic
+
+
+def test_local_blast_generate_smoke(cullpdb_db):
+    if not os.environ.get("OPENAWSEM_TEST_NETWORK"):
+        pytest.skip("set OPENAWSEM_TEST_NETWORK=1 to run the network-dependent generate smoke")
+    import openawsem
+    seq = openawsem.helperFunctions.myFunctions.read_fasta("examples/1r69/1r69.fasta")
+    mem = LocalBlast(database=cullpdb_db, n_mem=1, fragment_length=9, evalue=10000).generate(seq[:11])
+    assert isinstance(mem, MemoryWells) and len(mem) > 0
+    assert int(mem["resid_i"].min()) >= 1 and int(mem["resid_j"].max()) <= 11
+    seps = (mem["resid_j"] - mem["resid_i"]).to_numpy()
+    assert seps.min() >= 3 and seps.max() <= 9
