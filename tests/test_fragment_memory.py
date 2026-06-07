@@ -177,6 +177,26 @@ def test_localblast_parse_sseqid():
     assert LocalBlast._parse_sseqid("4v12_A") == ("4v12", "A")
 
 
+def test_local_blast_brain_damage_filtering(monkeypatch):
+    hits = pd.DataFrame([
+        dict(pdb_id="aaaa", chain="A", query_start=1, subject_start=1, subject_end=9, evalue=0.1),
+        dict(pdb_id="bbbb", chain="A", query_start=1, subject_start=1, subject_end=9, evalue=0.2),
+        dict(pdb_id="cccc", chain="A", query_start=1, subject_start=1, subject_end=9, evalue=0.3),
+    ])
+    homologs = {"aaaa": 99.0, "bbbb": 60.0}  # aaaa = self(>90), bbbb = homolog, cccc = not a homolog
+
+    def backend(brain_damage):
+        lb = LocalBlast(database="x", brain_damage=brain_damage, cutoff_identical=90)
+        monkeypatch.setattr(lb, "_homologs", lambda seq: homologs)
+        return lb
+
+    seq = "ACDEFGHIK"
+    assert set(backend(0)._filter_hits(hits, seq)["pdb_id"]) == {"aaaa", "bbbb", "cccc"}  # all
+    assert set(backend(1)._filter_hits(hits, seq)["pdb_id"]) == {"cccc"}                  # exclude homologs
+    assert set(backend(2)._filter_hits(hits, seq)["pdb_id"]) == {"bbbb"}                  # homologs except self
+    assert set(backend(0.5)._filter_hits(hits, seq)["pdb_id"]) == {"aaaa"}                # self only
+
+
 # --------------------------------------------------------------------------- #
 # SingleStructure backend
 # --------------------------------------------------------------------------- #
@@ -353,6 +373,13 @@ def test_local_blast_search_deterministic(cullpdb_db):
     assert (h1["pdb_id"] == "1r69").any()  # the target's own chain is in the DB
     pd.testing.assert_frame_equal(h1.reset_index(drop=True),
                                   lb._psiblast(seq[:9]).reset_index(drop=True))  # deterministic
+
+
+def test_local_blast_homologs_real(cullpdb_db):
+    import openawsem
+    seq = openawsem.helperFunctions.myFunctions.read_fasta("examples/1r69/1r69.fasta")
+    homologs = LocalBlast(database=cullpdb_db)._homologs(seq)
+    assert "1r69" in homologs and homologs["1r69"] > 90  # the target's own chain is a self-homolog
 
 
 def test_local_blast_generate_smoke(cullpdb_db):

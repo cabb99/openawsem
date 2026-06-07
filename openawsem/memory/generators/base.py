@@ -77,6 +77,10 @@ class StructureBackend(FragmentBackend):
     def fetch(self, hit):
         raise NotImplementedError
 
+    def _filter_hits(self, hits, sequence):
+        """Hook for method-specific hit filtering (e.g. homolog exclusion). Default: no-op."""
+        return hits
+
     def materialize(self, hit, scene) -> pd.DataFrame:
         """Aligned fragment: CA/CB of the hit's subject range, mapped to target residues.
 
@@ -118,7 +122,8 @@ class StructureBackend(FragmentBackend):
     def generate(self, sequence, gro_dir=None) -> "MemoryWells":
         """Generate a memory; with ``gro_dir`` also write a gro library and record the
         fragments used (so :meth:`MemoryWells.to_frags_mem` can emit a legacy frags.mem)."""
-        hits = select_n_per_position(self.search(sequence), self.n_mem)
+        hits = self._filter_hits(self.search(sequence), sequence)
+        hits = select_n_per_position(hits, self.n_mem)
         if gro_dir is not None:
             gro_dir = Path(gro_dir)
             gro_dir.mkdir(parents=True, exist_ok=True)

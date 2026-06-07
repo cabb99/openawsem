@@ -271,7 +271,7 @@ class AWSEMSimulationProject:
 
         openawsem.helperFunctions.create_zim(f"crystal_structure.fasta", tableLocation=__location__/"helperFunctions")
 
-    def generate_fragment_memory(self,database = "cullpdb_pc80_res3.0_R1.0_d160504_chains29712",fasta = None,N_mem = 20,brain_damage = 1.0,fragmentLength = 10,cutoff_identical=90):
+    def generate_fragment_memory(self,database = "cullpdb_pc80_res3.0_R1.0_d160504_chains29712",fasta = None,N_mem = 20,brain_damage = 1.0,fragmentLength = 10,cutoff_identical=90,cif_dir=None,download_format="cif"):
         """
         Generate the fragment memory file if the frag option is specified.
         """
@@ -279,11 +279,12 @@ class AWSEMSimulationProject:
         if fasta is None:
             fasta = f"{self.name}.fasta"
 
-        openawsem.helperFunctions.create_fragment_memories(database=database, fasta_file=fasta, memories_per_position=N_mem, 
-                                                           brain_damage=brain_damage, fragment_length=fragmentLength, pdb_dir=openawsem.data_path.pdb, 
+        openawsem.helperFunctions.create_fragment_memories(database=database, fasta_file=fasta, memories_per_position=N_mem,
+                                                           brain_damage=brain_damage, fragment_length=fragmentLength, pdb_dir=openawsem.data_path.pdb,
                                                            index_dir=openawsem.data_path.index, frag_lib_dir=openawsem.data_path.gro,
                                                            failed_pdb_list_file=openawsem.data_path.pdbfail, pdb_seqres=openawsem.data_path.pdbseqres,
-                                                           weight=1, evalue_threshold=10000, cutoff_identical=cutoff_identical)
+                                                           weight=1, evalue_threshold=10000, cutoff_identical=cutoff_identical,
+                                                           cif_dir=cif_dir, download_format=download_format)
 
         # self.run_command([
         #     "python", __location__/"helperFunctions"/"MultCha_prepFrags_index.py",
@@ -397,7 +398,7 @@ class AWSEMSimulationProject:
 
                 # Generate fragment memory files if the frag option is enabled
                 if self.args.frag:
-                    self.generate_fragment_memory(database=self.args.frag_database, fasta=self.args.frag_fasta, N_mem=self.args.frag_N_mem, brain_damage=self.args.frag_brain_damage, fragmentLength=self.args.frag_fragmentLength, cutoff_identical=self.args.frag_cutoff_identical)
+                    self.generate_fragment_memory(database=self.args.frag_database, fasta=self.args.frag_fasta, N_mem=self.args.frag_N_mem, brain_damage=self.args.frag_brain_damage, fragmentLength=self.args.frag_fragmentLength, cutoff_identical=self.args.frag_cutoff_identical, cif_dir=self.args.frag_cif_dir, download_format=self.args.frag_download_format)
 
                 #Generate charges
                 self.generate_charges()
@@ -504,6 +505,8 @@ def main(args=None):
     frag_parser.add_argument("--frag_brain_damage", type=float, choices=[0, 0.5, 1, 2], default=0, help="Control the inclusion or exclusion of homologous protein structures for generating fragment memories.\n 0: Homologs allowed; include all hits\n 0.5: Self-only; Include only homologs with >90%% similarity\n 1: Homologs excluded; Exclude all homologs (any similarity percent)\n 2: Homologs only; Include only homologous structures (except >90%% similarity)")
     frag_parser.add_argument("--frag_fragmentLength", type=int, default=10, help="Length of the fragments to be generated.")
     frag_parser.add_argument("--frag_cutoff_identical", type=int, default=90, help="Identity cutoff for self-structures")
+    frag_parser.add_argument("--frag_cif_dir", default=None, help="Local mmCIF database (wwPDB divided layout, e.g. /path/mmCIF/<id[1:3]>/<id>.cif.gz) to fetch structures from instead of downloading.")
+    frag_parser.add_argument("--frag_download_format", choices=["cif", "pdb"], default="cif", help="Structure download format when an entry is not in --frag_cif_dir.")
 
 
     # Parse and return the command-line arguments

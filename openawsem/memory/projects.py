@@ -30,27 +30,24 @@ def create_single_memory(pdb, chain="-1", *, weight=20, output="single_frags.mem
     return memory
 
 
-def create_fragment_memories(database, fasta_file, memories_per_position=20, brain_damage=1,
+def create_fragment_memories(database, fasta_file, memories_per_position=20, brain_damage=0,
                              fragment_length=9, frag_lib_dir="fraglib", weight=1,
-                             evalue_threshold=10000, cif_dir=None, output="frags.mem",
-                             download_format="cif", **legacy):
+                             evalue_threshold=10000, cutoff_identical=90, cif_dir=None,
+                             output="frags.mem", download_format="cif", **legacy):
     """Generate a fragment memory by local BLAST and write ``frags.mem`` + a gro library.
 
     Structures are fetched from ``cif_dir`` (a local wwPDB-divided mmCIF database) when
-    given, otherwise downloaded (``download_format`` ``"cif"`` or ``"pdb"``).  Obsolete
-    legacy arguments (``pdb_dir``, ``index_dir``, ``failed_pdb_list_file``, ``pdb_seqres``,
-    ``cutoff_identical``) are accepted and ignored.
-
-    NOTE: homolog / ``brain_damage`` exclusion is not yet ported, so the generated memory
-    may include homologous (and self) structures.
+    given, otherwise downloaded (``download_format`` ``"cif"`` or ``"pdb"``).
+    ``brain_damage`` controls homolog handling (0 all hits | 1 exclude homologs | 2
+    homologs except self>cutoff | 0.5 self only>cutoff); ``cutoff_identical`` is the self
+    identity cutoff (percent).  Obsolete legacy arguments (``pdb_dir``, ``index_dir``,
+    ``failed_pdb_list_file``, ``pdb_seqres``) are accepted and ignored.
     """
-    if brain_damage:
-        logger.warning("create_fragment_memories: homolog/brain_damage=%s filtering is not yet "
-                       "ported to the new backend and is ignored.", brain_damage)
     target = "".join(parse_fasta(fasta_file).values())
     backend = LocalBlast(database=str(database), n_mem=memories_per_position,
                          fragment_length=fragment_length, evalue=float(evalue_threshold),
-                         weight=weight, cif_dir=cif_dir, download_format=download_format)
+                         weight=weight, cif_dir=cif_dir, download_format=download_format,
+                         brain_damage=brain_damage, cutoff_identical=cutoff_identical)
     memory = backend.generate(target, gro_dir=frag_lib_dir)
     memory.to_frags_mem(output)
     return memory
