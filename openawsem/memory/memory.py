@@ -381,13 +381,13 @@ class MemoryWells(FragmentMemory):
     @classmethod
     def _fragment_wells(cls, fragment, min_seq_sep, max_seq_sep, well_width) -> pd.DataFrame:
         f = pd.DataFrame(fragment)
+        n = len(f)
+        if n < 2 or "target_resid" not in f.columns:
+            return cls.empty()
         resids = f["target_resid"].to_numpy()
         names = f["name"].to_numpy(dtype=object)
         coords = f[["x", "y", "z"]].to_numpy(dtype=float)
-        weight = float(f["weight"].iloc[0]) if "weight" in f.columns and len(f) else 1.0
-        n = len(f)
-        if n < 2:
-            return cls.empty()
+        weight = float(f["weight"].iloc[0]) if "weight" in f.columns else 1.0
         # order by (resid, CA<CB) so triu pairs are canonical and seq_sep >= 0
         order = np.lexsort((np.array([ATOM_RANK.get(t, 99) for t in names]), resids))
         resids, names, coords = resids[order], names[order], coords[order]

@@ -25,7 +25,8 @@ class LocalBlast(StructureBackend):
 
     def __init__(self, database, *, n_mem=20, fragment_length=9, evalue=10000.0,
                  min_seq_sep=3, max_seq_sep=9, well_width=0.1, weight=1.0,
-                 blast_exe="psiblast", num_iterations=5, max_gaps=0, num_threads=1):
+                 blast_exe="psiblast", num_iterations=5, max_gaps=0, num_threads=1,
+                 cif_dir=None, download_format="cif"):
         self.database = str(database)
         self.n_mem = n_mem
         self.fragment_length = fragment_length
@@ -38,6 +39,8 @@ class LocalBlast(StructureBackend):
         self.num_iterations = num_iterations
         self.max_gaps = max_gaps
         self.num_threads = num_threads
+        self.cif_dir = cif_dir            # local mmCIF database (wwPDB divided layout)
+        self.download_format = download_format  # 'cif' (RCSB) or 'pdb' (PDBFixer) when not local
 
     def search(self, sequence) -> pd.DataFrame:
         windows = len(sequence) - self.fragment_length + 1
@@ -60,9 +63,8 @@ class LocalBlast(StructureBackend):
         return pd.concat(frames, ignore_index=True)
 
     def fetch(self, hit):
-        from openawsem.memory._molscene import _require_molscene
-        Scene = _require_molscene()
-        return Scene.from_fixPDB(pdbid=hit["pdb_id"], chain=hit.get("chain"))
+        from openawsem.memory.structures import fetch_structure
+        return fetch_structure(hit["pdb_id"], cif_dir=self.cif_dir, download=self.download_format)
 
     def _psiblast(self, query) -> pd.DataFrame:
         with tempfile.NamedTemporaryFile("w", suffix=".fasta", delete=True) as fh:

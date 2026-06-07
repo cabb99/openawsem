@@ -25,29 +25,43 @@ class SingleStructure(FragmentBackend):
         self.max_seq_sep = max_seq_sep
         self.well_width = well_width
 
-    def generate(self, sequence=None) -> "MemoryWells":
+    def generate(self, sequence=None, gro_dir=None, name=None) -> "MemoryWells":
         from openawsem.memory import _molscene
         if self.structure is None:
             raise ValueError("SingleStructure needs a structure (path or molscene Scene)")
         scene = self.structure
         if isinstance(scene, (str, Path)):
+            if name is None:
+                name = Path(scene).stem
             scene = _molscene.load_structure(scene)
+        name = name or "memory"
         atoms = _molscene.cacb_nm(scene)
         if self.chain is not None:
             chains = [self.chain] if isinstance(self.chain, str) else list(self.chain)
             atoms = atoms[atoms["chain"].isin(chains)]
-        fragments = []
-        offset = 0
-        for _chain, group in atoms.groupby("chain", sort=False):
-            resids = sorted(group["resid"].unique())
+        if gro_dir is not None:
+            gro_dir = Path(gro_dir)
+            gro_dir.mkdir(parents=True, exist_ok=True)
+        fragments, used, offset = [], [], 0
+        for chain, group in atoms.groupby("chain", sort=False):
+            resids = sorted(int(r) for r in group["resid"].unique())
             remap = {rid: offset + k + 1 for k, rid in enumerate(resids)}
             frag = group.copy()
             frag["target_resid"] = frag["resid"].map(remap)
             frag["weight"] = self.weight
             fragments.append(frag)
+            # one gro per chain; the legacy single-memory line spans the whole (contiguous) chain
+            if gro_dir is not None and len(resids) >= 2 and resids[-1] - resids[0] == len(resids) - 1:
+                gro_path = gro_dir / f"{name}_{chain}.gro"
+                scene.write_awsem_gro(str(gro_path), chain=chain)
+                used.append({"location": str(gro_path), "target_start": offset + 1,
+                             "fragment_start": resids[0], "frag_len": len(resids),
+                             "weight": float(self.weight)})
             offset += len(resids)
         memory = MemoryWells.from_fragments(fragments, min_seq_sep=self.min_seq_sep,
                                             max_seq_sep=self.max_seq_sep, well_width=self.well_width)
         structure = str(self.structure) if isinstance(self.structure, (str, Path)) else "<Scene>"
         memory.provenance.update({"method": "single", "structure": structure})
+        if used:
+            memory.provenance["fragments"] = used
         return memory

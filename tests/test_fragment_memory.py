@@ -365,3 +365,51 @@ def test_local_blast_generate_smoke(cullpdb_db):
     assert int(mem["resid_i"].min()) >= 1 and int(mem["resid_j"].max()) <= 11
     seps = (mem["resid_j"] - mem["resid_i"]).to_numpy()
     assert seps.min() >= 3 and seps.max() <= 9
+
+
+# --------------------------------------------------------------------------- #
+# structure fetch (local mmCIF) + project bridges
+# --------------------------------------------------------------------------- #
+@pytest.fixture(scope="module")
+def local_cif_dir():
+    path = "/home/cb/Databases/mmCIF"
+    if not Path(path).exists():
+        pytest.skip("local mmCIF database not present")
+    return path
+
+
+def test_fetch_local_cif(local_cif_dir):
+    pytest.importorskip("molscene")
+    from openawsem.memory.structures import fetch_structure, local_cif_path
+    if local_cif_path("1r69", local_cif_dir) is None:
+        pytest.skip("1r69 not in local mmCIF database")
+    scene = fetch_structure("1r69", cif_dir=local_cif_dir)
+    assert len(scene) > 0 and "A" in set(scene["chain"])
+
+
+def test_create_single_memory_bridge(tmp_path):
+    pytest.importorskip("molscene")
+    pdb = "tests/data/1mbn-crystal_structure.pdb"
+    if not Path(pdb).exists():
+        pytest.skip("test structure missing")
+    from openawsem.helperFunctions import create_single_memory
+    out = tmp_path / "single_frags.mem"
+    create_single_memory(pdb, "-1", output=str(out), gro_dir=str(tmp_path))
+    assert out.exists() and (tmp_path / "1mbn-crystal_structure_A.gro").exists()
+    m = MemoryWells.from_frags_mem(out)
+    assert len(m) > 0 and (m["weight"] == 20).all()
+
+
+def test_local_blast_frags_mem_roundtrip(tmp_path, cullpdb_db, local_cif_dir):
+    """Fully local (no network): generate -> gro library + frags.mem -> read back."""
+    import openawsem
+    seq = openawsem.helperFunctions.myFunctions.read_fasta("examples/1r69/1r69.fasta")
+    mem = LocalBlast(database=cullpdb_db, n_mem=2, fragment_length=9,
+                     cif_dir=local_cif_dir).generate(seq[:15], gro_dir=tmp_path / "fraglib")
+    assert len(mem.provenance.get("fragments", [])) > 0
+    out = tmp_path / "frags.mem"
+    mem.to_frags_mem(out)
+    reread = MemoryWells.from_frags_mem(out)
+    assert len(reread) > 0
+    seps = (reread["resid_j"] - reread["resid_i"]).to_numpy()
+    assert seps.min() >= 3 and seps.max() <= 9
