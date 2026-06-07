@@ -177,6 +177,60 @@ def test_localblast_parse_sseqid():
     assert LocalBlast._parse_sseqid("4v12_A") == ("4v12", "A")
 
 
+def test_brain_damage_fails_closed_on_homolog_blast_failure(monkeypatch):
+    """If the homolog BLAST errors, brain_damage must fail closed (raise), not silently
+    treat every hit as a non-homolog and keep them all."""
+    hits = pd.DataFrame([
+        dict(pdb_id="aaaa", chain="A", query_start=1, subject_start=1, subject_end=9, evalue=0.1),
+        dict(pdb_id="bbbb", chain="A", query_start=1, subject_start=1, subject_end=9, evalue=0.2),
+    ])
+    seq = "ACDEFGHIK"
+    # a non-existent executable makes the underlying subprocess.run raise FileNotFoundError
+    lb = LocalBlast(database="x", brain_damage=1, blast_exe="definitely-not-a-real-blast-exe")
+    with pytest.raises(RuntimeError):
+        lb._filter_hits(hits, seq)
+
+    # brain_damage=0 never consults homologs, so a broken homolog BLAST is harmless there
+    lb0 = LocalBlast(database="x", brain_damage=0, blast_exe="definitely-not-a-real-blast-exe")
+    assert len(lb0._filter_hits(hits, seq)) == len(hits)
+
+    # a homolog BLAST that *runs* but finds nothing is a valid empty set: keep all for bd=1
+    monkeypatch.setattr(lb, "_homologs", lambda s: {})
+    assert set(lb._filter_hits(hits, seq)["pdb_id"]) == {"aaaa", "bbbb"}
+
+
+def test_parse_blast_keeps_only_final_iteration():
+    """PSI-BLAST -outfmt 7 concatenates every round; only the last (converged) round's
+    alignments must survive parsing — intermediate-round-only hits are dropped."""
+    lb = LocalBlast(database="x", max_gaps=0, evalue=10000)
+
+    def row(pdb, evalue):
+        # sseqid qstart qend sstart send qseq sseq length gaps bitscore evalue
+        return "\t".join(["pdb|" + pdb + "|A", "1", "9", "1", "9",
+                          "ACDEFGHIK", "ACDEFGHIK", "9", "0", "50.0", str(evalue)])
+
+    stdout = "\n".join([
+        "# PSIBLAST 2.13.0+",
+        "# Iteration: 1",
+        "# Fields: subject id, ...",
+        row("1aaa", 0.001),          # appears only in round 1 -> must be dropped
+        row("1bbb", 0.5),
+        "# Iteration: 2",
+        "# Fields: subject id, ...",
+        row("1bbb", 0.002),          # final round
+        row("1ccc", 0.003),
+        "",
+        "Search has CONVERGED!",
+        "# BLAST processed 1 queries",
+    ])
+    df = lb._parse_blast(stdout)
+    assert set(df["pdb_id"]) == {"1bbb", "1ccc"}
+    assert "1aaa" not in set(df["pdb_id"])
+    # a single-round output (no Iteration markers) still yields all its rows
+    single = "\n".join([row("1ddd", 0.01), row("1eee", 0.02)])
+    assert set(lb._parse_blast(single)["pdb_id"]) == {"1ddd", "1eee"}
+
+
 def test_local_blast_brain_damage_filtering(monkeypatch):
     hits = pd.DataFrame([
         dict(pdb_id="aaaa", chain="A", query_start=1, subject_start=1, subject_end=9, evalue=0.1),

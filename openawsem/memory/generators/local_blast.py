@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class LocalBlast(StructureBackend):
     """Sliding-window PSI/BLAST -> deterministic hits; structures fetched via molscene."""
 
-    _OUTFMT = "6 sseqid qstart qend sstart send qseq sseq length gaps bitscore evalue"
+    _OUTFMT = "7 sseqid qstart qend sstart send qseq sseq length gaps bitscore evalue"
 
     def __init__(self, database, *, n_mem=20, fragment_length=9, evalue=10000.0,
                  min_seq_sep=3, max_seq_sep=9, well_width=0.1, weight=1.0,
@@ -116,8 +116,10 @@ class LocalBlast(StructureBackend):
             try:
                 result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-                logger.error("homolog BLAST failed: %s", exc)
-                return pd.DataFrame(columns=fields.split() + ["pdb_id", "chain"])
+                raise RuntimeError(
+                    f"homolog BLAST failed; refusing to apply brain_damage={self.brain_damage} "
+                    f"on an empty homolog set (that would silently keep/drop the wrong hits)"
+                ) from exc
         lines = [ln for ln in result.stdout.splitlines() if ln.strip() and not ln.startswith("Search has")]
         df = pd.DataFrame([ln.split("\t") for ln in lines], columns=fields.split())
         if len(df):
@@ -142,10 +144,25 @@ class LocalBlast(StructureBackend):
                 return None
         return self._parse_blast(result.stdout)
 
+    @staticmethod
+    def _final_iteration_rows(stdout):
+        """Tab-separated data rows of the *final* PSI-BLAST round only.
+
+        With ``-outfmt 7`` each round is preceded by a ``# Iteration: N`` comment, so the
+        last round is the data after the last such marker.  Earlier rounds are intermediate
+        profiles, not the converged result, and must not be mixed into the hit set.  Without
+        any marker (e.g. a single-iteration run) every data row is returned.
+        """
+        lines = stdout.splitlines()
+        last_iter = max((i for i, ln in enumerate(lines) if ln.startswith("# Iteration:")),
+                        default=-1)
+        return [ln for ln in lines[last_iter + 1:]
+                if ln.strip() and not ln.startswith("#") and not ln.startswith("Search has")]
+
     def _parse_blast(self, stdout) -> pd.DataFrame:
-        lines = [ln for ln in stdout.splitlines() if ln.strip() and not ln.startswith("Search has")]
+        rows = self._final_iteration_rows(stdout)
         names = self._OUTFMT.split()[1:]
-        df = pd.DataFrame([ln.split("\t") for ln in lines], columns=names)
+        df = pd.DataFrame([ln.split("\t") for ln in rows], columns=names)
         for col in ["qstart", "qend", "sstart", "send", "length", "gaps"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
         df["bitscore"] = pd.to_numeric(df["bitscore"], errors="coerce")
