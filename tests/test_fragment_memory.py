@@ -177,6 +177,69 @@ def test_localblast_parse_sseqid():
     assert LocalBlast._parse_sseqid("4v12_A") == ("4v12", "A")
 
 
+def _stub_backend(windows):
+    """A StructureBackend whose search/fetch/materialize are driven by ``windows``
+    (``{pdb_id: fragment DataFrame}``), for exercising the generate() pipeline offline."""
+    from openawsem.memory.generators.base import StructureBackend
+
+    class _FakeScene:
+        def write_awsem_gro(self, path, chain=None):
+            Path(path).write_text("placeholder")
+
+    class _Stub(StructureBackend):
+        n_mem = 20
+
+        def search(self, sequence):
+            return pd.DataFrame([
+                dict(pdb_id=pid, chain="A", query_start=int(w["target_resid"].min()),
+                     query_end=int(w["target_resid"].min()) + 8, subject_start=1,
+                     subject_end=9, evalue=0.1 * (i + 1), bitscore=50 - i)
+                for i, (pid, w) in enumerate(windows.items())])
+
+        def fetch(self, hit):
+            return _FakeScene()
+
+        def materialize(self, hit, scene):
+            return windows[hit["pdb_id"]].copy()
+
+    return _Stub()
+
+
+def _ca_window(resids, target_start, weight=1.0):
+    n = len(resids)
+    return pd.DataFrame({"chain": "A", "resid": resids, "name": "CA", "resname": "ALA",
+                         "target_resid": [target_start + k for k in range(n)], "weight": weight,
+                         "x": np.arange(n) * 0.38, "y": 0.0, "z": 0.0})
+
+
+def test_generate_returned_memory_matches_recorded_fragments(tmp_path):
+    """When writing a frags.mem, the returned MemoryWells must contain exactly the
+    fragments that were recorded (to_frags_mem reproducible): a non-contiguous fragment
+    that no frags.mem line can index is excluded from both, not just from the file."""
+    windows = {
+        "p0aa": _ca_window([10, 11, 12, 13, 14], target_start=1),   # contiguous -> recordable
+        "p1aa": _ca_window([20, 22, 24, 26, 28], target_start=2),   # gapped -> not recordable
+    }
+    backend = _stub_backend(windows)
+
+    mem = backend.generate("X" * 12, gro_dir=tmp_path)
+    # exactly one fragment recorded, and it is the contiguous one
+    assert len(mem.provenance["fragments"]) == 1
+    assert mem.provenance["fragments"][0]["fragment_start"] == 10
+    # returned wells equal those of the recorded fragment alone (no orphan restraints)
+    keys = ["resid_i", "name_i", "resid_j", "name_j"]
+    got = mem.sort_values(keys).reset_index(drop=True)[keys]
+    exp = MemoryWells.from_fragments([windows["p0aa"]]).sort_values(keys).reset_index(drop=True)[keys]
+    pd.testing.assert_frame_equal(pd.DataFrame(got), pd.DataFrame(exp))
+    # the non-contiguous fragment's target residue 6 never leaks into the returned object
+    assert 6 not in set(mem["resid_i"]) | set(mem["resid_j"])
+
+    # with no gro_dir there is no file to diverge from -> all materialized fragments are kept
+    mem_all = backend.generate("X" * 12)
+    assert 6 in set(mem_all["resid_i"]) | set(mem_all["resid_j"])
+    assert "fragments" not in mem_all.provenance
+
+
 def test_brain_damage_fails_closed_on_homolog_blast_failure(monkeypatch):
     """If the homolog BLAST errors, brain_damage must fail closed (raise), not silently
     treat every hit as a non-homolog and keep them all."""

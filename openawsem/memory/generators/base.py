@@ -142,9 +142,12 @@ class StructureBackend(FragmentBackend):
             window = self.materialize(hit, scene)
             if len(window) == 0:
                 continue
+            # when writing a frags.mem, keep the returned memory in step with the file: a
+            # fragment whose residue range a frags.mem line cannot index is recorded by
+            # neither, so it must not contribute wells to the returned object either.
+            if gro_dir is not None and not self._record_used(used, gro_written, gro_dir, hit, scene, window):
+                continue
             fragments.append(window)
-            if gro_dir is not None:
-                self._record_used(used, gro_written, gro_dir, hit, scene, window)
         memory = MemoryWells.from_fragments(fragments, min_seq_sep=self.min_seq_sep,
                                             max_seq_sep=self.max_seq_sep, well_width=self.well_width)
         memory.provenance.update({"method": getattr(self, "method_name", type(self).__name__),
@@ -154,15 +157,16 @@ class StructureBackend(FragmentBackend):
         return memory
 
     @staticmethod
-    def _record_used(used, gro_written, gro_dir, hit, scene, window):
+    def _record_used(used, gro_written, gro_dir, hit, scene, window) -> bool:
         """Write the source-chain gro (once) and record one frags.mem line for ``window``.
 
         Only contiguous-residue fragments are recorded, since a legacy frags.mem line
-        indexes a residue *range* in the gro.
+        indexes a residue *range* in the gro.  Returns ``True`` when the fragment was
+        recorded, ``False`` when it was skipped as non-reproducible.
         """
         ca_resids = sorted(int(r) for r in window.loc[window["name"] == "CA", "resid"].unique())
         if len(ca_resids) < 2 or ca_resids[-1] - ca_resids[0] != len(ca_resids) - 1:
-            return
+            return False
         key = (hit.get("pdb_id"), hit.get("chain"))
         if key not in gro_written:
             path = Path(gro_dir) / f"{hit.get('pdb_id')}{hit.get('chain') or ''}.gro"
@@ -172,3 +176,4 @@ class StructureBackend(FragmentBackend):
                      "target_start": int(window["target_resid"].min()),
                      "fragment_start": ca_resids[0], "frag_len": len(ca_resids),
                      "weight": float(window["weight"].iloc[0])})
+        return True
