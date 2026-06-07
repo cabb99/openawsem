@@ -172,6 +172,58 @@ def test_selection_deduplicates():
     assert len(selection.select_n_per_position(hits, 20)) == 1
 
 
+def test_search_windows_do_not_cross_record_boundaries(monkeypatch):
+    """A multi-record query is windowed record by record (no junction-spanning windows),
+    with target residues numbered continuously across records."""
+    lb = LocalBlast(database="x", fragment_length=3, max_gaps=0, evalue=10000)
+    calls = []
+
+    def fake_psiblast(query):
+        calls.append(query)
+        return pd.DataFrame([dict(sseqid="pdb|1abc|A", qstart=1, qend=len(query), sstart=1,
+                                  send=len(query), qseq=query, sseq=query, length=len(query),
+                                  gaps=0, bitscore=50.0, evalue=0.1, pdb_id="1abc", chain="A")])
+
+    monkeypatch.setattr(lb, "_psiblast", fake_psiblast)
+
+    hits = lb.search(["ACDEF", "GHIKL"])  # two 5-mers, fragment_length 3
+    # windows stay inside each record: ACD,CDE,DEF then GHI,HIK,IKL -- never DEF|GHI etc.
+    assert calls == ["ACD", "CDE", "DEF", "GHI", "HIK", "IKL"]
+    # numbering is continuous: record 2 (len-5 record 1 before it) starts at target 6, not 4/5
+    assert sorted(hits["query_start"].unique()) == [1, 2, 3, 6, 7, 8]
+
+    # a plain string is still a single record
+    calls.clear()
+    lb.search("ACDEFG")
+    assert calls == ["ACD", "CDE", "DEF", "EFG"]
+
+
+def test_create_fragment_memories_passes_records_not_concatenation(tmp_path, monkeypatch):
+    """The bridge hands the backend the per-record sequences, not one concatenated string,
+    so windows cannot span chains."""
+    from openawsem.memory import projects
+
+    fasta = tmp_path / "two_chains.fasta"
+    fasta.write_text(">chainA\nACDEFGHIK\n>chainB\nLMNPQRSTV\n")
+    captured = {}
+
+    class _StubMem:
+        provenance: dict = {}
+
+        def to_frags_mem(self, output):
+            Path(output).write_text("")
+
+    def fake_generate(self, sequence, gro_dir=None):
+        captured["sequence"] = sequence
+        return _StubMem()
+
+    monkeypatch.setattr(projects.LocalBlast, "generate", fake_generate)
+    projects.create_fragment_memories(database="x", fasta_file=str(fasta),
+                                      output=str(tmp_path / "frags.mem"),
+                                      frag_lib_dir=str(tmp_path / "fraglib"))
+    assert captured["sequence"] == ["ACDEFGHIK", "LMNPQRSTV"]
+
+
 def test_localblast_parse_sseqid():
     assert LocalBlast._parse_sseqid("pdb|4V12|A") == ("4v12", "A")
     assert LocalBlast._parse_sseqid("4v12_A") == ("4v12", "A")
@@ -238,6 +290,60 @@ def test_generate_returned_memory_matches_recorded_fragments(tmp_path):
     mem_all = backend.generate("X" * 12)
     assert 6 in set(mem_all["resid_i"]) | set(mem_all["resid_j"])
     assert "fragments" not in mem_all.provenance
+
+
+def _backfill_backend(n_mem, failing_prefix, cand):
+    from openawsem.memory.generators.base import StructureBackend
+
+    windows = {pid: _ca_window([10, 11, 12, 13, 14], target_start=1) for pid in cand}
+
+    class _FakeScene:
+        def write_awsem_gro(self, path, chain=None):
+            Path(path).write_text("placeholder")
+
+    class _Stub(StructureBackend):
+        pass
+
+    _Stub.n_mem = n_mem
+
+    def search(self, sequence):
+        return pd.DataFrame([
+            dict(pdb_id=pid, chain="A", query_start=1, query_end=9, subject_start=1,
+                 subject_end=9, evalue=0.1 * (i + 1), bitscore=50 - i)
+            for i, pid in enumerate(cand)])
+
+    def fetch(self, hit):
+        if hit["pdb_id"].startswith(failing_prefix):
+            raise RuntimeError("simulated fetch failure")
+        return _FakeScene()
+
+    def materialize(self, hit, scene):
+        return windows[hit["pdb_id"]].copy()
+
+    _Stub.search, _Stub.fetch, _Stub.materialize = search, fetch, materialize
+    return _Stub()
+
+
+def test_generate_backfills_past_failed_fetches(tmp_path):
+    """A position must reach n_mem usable fragments even when its best-ranked hits fail to
+    fetch: selection counts materialized fragments, not pre-truncated hits."""
+    # ranked by evalue: fa < fb < uc < ud ; fa/fb fail to fetch, uc/ud are usable
+    cand = ["faaa", "fbbb", "uccc", "uddd"]
+    backend = _backfill_backend(n_mem=2, failing_prefix="f", cand=cand)
+    mem = backend.generate("X" * 12, gro_dir=tmp_path)
+    used = mem.provenance["fragments"]
+    assert len(used) == 2  # backfilled to N despite the two best hits failing
+    assert {Path(u["location"]).name for u in used} == {"ucccA.gro", "udddA.gro"}
+
+
+def test_generate_respects_n_mem_cap(tmp_path):
+    """Backfill does not overshoot: with every hit usable, only the top n_mem are kept."""
+    cand = ["uaaa", "ubbb", "uccc", "uddd"]
+    backend = _backfill_backend(n_mem=2, failing_prefix="none", cand=cand)
+    mem = backend.generate("X" * 12, gro_dir=tmp_path)
+    used = mem.provenance["fragments"]
+    assert len(used) == 2  # the two best-ranked usable hits
+    assert {Path(u["location"]).name for u in used} == {"uaaaA.gro", "ubbbA.gro"}
 
 
 def test_brain_damage_fails_closed_on_homolog_blast_failure(monkeypatch):

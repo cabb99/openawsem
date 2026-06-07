@@ -43,11 +43,13 @@ def create_fragment_memories(database, fasta_file, memories_per_position=20, bra
     identity cutoff (percent).  Obsolete legacy arguments (``pdb_dir``, ``index_dir``,
     ``failed_pdb_list_file``, ``pdb_seqres``) are accepted and ignored.
     """
-    target = "".join(parse_fasta(fasta_file).values())
+    # pass records separately so sliding windows never cross chain/record boundaries; the
+    # backend numbers target residues continuously across them
+    records = list(parse_fasta(fasta_file).values())
     backend = LocalBlast(database=str(database), n_mem=memories_per_position,
                          fragment_length=fragment_length, evalue=float(evalue_threshold),
                          weight=weight, cif_dir=cif_dir, download_format=download_format,
                          brain_damage=brain_damage, cutoff_identical=cutoff_identical)
-    memory = backend.generate(target, gro_dir=frag_lib_dir)
+    memory = backend.generate(records, gro_dir=frag_lib_dir)
     memory.to_frags_mem(output)
     return memory

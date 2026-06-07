@@ -14,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 
 from openawsem.memory.memory import MemoryWells
-from openawsem.memory.generators.selection import select_n_per_position
+from openawsem.memory.generators.selection import deduplicate_hits, rank_hits
 
 logger = logging.getLogger(__name__)
 
@@ -122,13 +122,20 @@ class StructureBackend(FragmentBackend):
     def generate(self, sequence, gro_dir=None) -> "MemoryWells":
         """Generate a memory; with ``gro_dir`` also write a gro library and record the
         fragments used (so :meth:`MemoryWells.to_frags_mem` can emit a legacy frags.mem)."""
-        hits = self._filter_hits(self.search(sequence), sequence)
-        hits = select_n_per_position(hits, self.n_mem)
+        # Rank the *full* candidate list and keep N per position by counting fragments that
+        # actually materialize, not by pre-truncating to N hits: a failed fetch or an
+        # un-mappable subject sequence then backfills from the next-best hit instead of
+        # leaving the position short.
+        ranked = deduplicate_hits(rank_hits(self._filter_hits(self.search(sequence), sequence)))
         if gro_dir is not None:
             gro_dir = Path(gro_dir)
             gro_dir.mkdir(parents=True, exist_ok=True)
         fragments, used, scene_cache, gro_written = [], [], {}, {}
-        for hit in hits.to_dict("records"):
+        kept_per_pos: dict = {}
+        for hit in ranked.to_dict("records"):
+            pos = hit.get("query_start")
+            if kept_per_pos.get(pos, 0) >= self.n_mem:
+                continue  # this position already has N usable fragments
             key = (hit.get("pdb_id"), hit.get("chain"))
             if key not in scene_cache:
                 try:
@@ -148,10 +155,11 @@ class StructureBackend(FragmentBackend):
             if gro_dir is not None and not self._record_used(used, gro_written, gro_dir, hit, scene, window):
                 continue
             fragments.append(window)
+            kept_per_pos[pos] = kept_per_pos.get(pos, 0) + 1
         memory = MemoryWells.from_fragments(fragments, min_seq_sep=self.min_seq_sep,
                                             max_seq_sep=self.max_seq_sep, well_width=self.well_width)
         memory.provenance.update({"method": getattr(self, "method_name", type(self).__name__),
-                                  "n_hits": int(len(hits))})
+                                  "n_hits": int(len(fragments))})
         if used:
             memory.provenance["fragments"] = used
         return memory

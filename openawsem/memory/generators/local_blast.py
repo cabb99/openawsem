@@ -48,21 +48,33 @@ class LocalBlast(StructureBackend):
         self.cutoff_identical = cutoff_identical
         self.homolog_evalue = homolog_evalue
 
+    @staticmethod
+    def _as_records(sequence):
+        """Normalize the query into an ordered list of per-record sequences.
+
+        A plain string is one record; a list/tuple (e.g. a multi-chain FASTA) is windowed
+        record by record so a sliding window never straddles a chain/record boundary, while
+        target residues stay numbered continuously across records (1..N1, N1+1..).
+        """
+        return [sequence] if isinstance(sequence, str) else list(sequence)
+
     def search(self, sequence) -> pd.DataFrame:
-        windows = len(sequence) - self.fragment_length + 1
-        if windows < 1:
-            raise ValueError(f"sequence shorter than fragment_length={self.fragment_length}")
-        frames = []
-        for start in range(windows):
-            hits = self._psiblast(sequence[start:start + self.fragment_length])
-            if hits is None or len(hits) == 0:
-                continue
-            # offset the (1-based) alignment coordinates into the full target sequence
-            hits["query_start"] = hits["qstart"] + start
-            hits["query_end"] = hits["qend"] + start
-            hits["subject_start"] = hits["sstart"]
-            hits["subject_end"] = hits["send"]
-            frames.append(hits)
+        frames, base = [], 0
+        for record in self._as_records(sequence):
+            windows = len(record) - self.fragment_length + 1
+            if windows < 1:
+                raise ValueError(f"record shorter than fragment_length={self.fragment_length}")
+            for start in range(windows):
+                hits = self._psiblast(record[start:start + self.fragment_length])
+                if hits is None or len(hits) == 0:
+                    continue
+                # offset the (1-based) alignment coordinates into the continuous target numbering
+                hits["query_start"] = hits["qstart"] + start + base
+                hits["query_end"] = hits["qend"] + start + base
+                hits["subject_start"] = hits["sstart"]
+                hits["subject_end"] = hits["send"]
+                frames.append(hits)
+            base += len(record)
         if not frames:
             return pd.DataFrame(columns=["pdb_id", "chain", "query_start", "query_end",
                                          "subject_start", "subject_end", "evalue", "bitscore"])
@@ -98,11 +110,16 @@ class LocalBlast(StructureBackend):
         return hits[mask].reset_index(drop=True)
 
     def _homologs(self, sequence) -> dict:
-        """Full-sequence BLAST -> ``{pdb_id: max percent identity}`` (the target's homologs)."""
-        df = self._blast_full_sequence(sequence)
+        """Full-sequence BLAST -> ``{pdb_id: max percent identity}`` (the target's homologs).
+
+        Each record is blasted on its own so a multi-chain query does not produce spurious
+        junction-spanning homolog alignments.
+        """
         homologs: dict = {}
-        for pid, pident in zip(df["pdb_id"], df["pident"]):
-            homologs[pid] = max(homologs.get(pid, 0.0), float(pident))
+        for record in self._as_records(sequence):
+            df = self._blast_full_sequence(record)
+            for pid, pident in zip(df["pdb_id"], df["pident"]):
+                homologs[pid] = max(homologs.get(pid, 0.0), float(pident))
         return homologs
 
     def _blast_full_sequence(self, sequence) -> pd.DataFrame:
