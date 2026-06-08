@@ -271,7 +271,7 @@ class AWSEMSimulationProject:
 
         openawsem.helperFunctions.create_zim(f"crystal_structure.fasta", tableLocation=__location__/"helperFunctions")
 
-    def generate_fragment_memory(self,database = "cullpdb_pc80_res3.0_R1.0_d160504_chains29712",fasta = None,N_mem = 20,brain_damage = 1.0,fragmentLength = 10,cutoff_identical=90):
+    def generate_fragment_memory(self,database = "cullpdb_pc80_res3.0_R1.0_d160504_chains29712",fasta = None,N_mem = 20,brain_damage = 1.0,fragmentLength = 10,cutoff_identical=90,fragmem_structure=None):
         """
         Generate the fragment memory file if the frag option is specified.
         """
@@ -291,7 +291,8 @@ class AWSEMSimulationProject:
         # ], stdout="logfile")
 
         # Check and correct the fragment memory file
-        openawsem.helperFunctions.check_and_correct_fragment_memory("frags.mem")
+        openawsem.helperFunctions.check_and_correct_fragment_memory("frags.mem",
+                        fragmem_structure=fragmem_structure,openawsem_location=__location__)
 
         # Relocate the file to the fraglib folder
         openawsem.helperFunctions.relocate(fileLocation="frags.mem", toLocation="fraglib")
@@ -397,7 +398,7 @@ class AWSEMSimulationProject:
 
                 # Generate fragment memory files if the frag option is enabled
                 if self.args.frag:
-                    self.generate_fragment_memory(database=self.args.frag_database, fasta=self.args.frag_fasta, N_mem=self.args.frag_N_mem, brain_damage=self.args.frag_brain_damage, fragmentLength=self.args.frag_fragmentLength, cutoff_identical=self.args.frag_cutoff_identical)
+                    self.generate_fragment_memory(database=self.args.frag_database, fasta=self.args.frag_fasta, N_mem=self.args.frag_N_mem, brain_damage=self.args.frag_brain_damage, fragmentLength=self.args.frag_fragmentLength, cutoff_identical=self.args.frag_cutoff_identical, fragmem_structure=self.args.frag_fragmem_structure)
 
                 #Generate charges
                 self.generate_charges()
@@ -498,6 +499,7 @@ def main(args=None):
 
       # Create a subparser for frag-related arguments
     frag_parser = parser.add_argument_group("frag", "Arguments for fragment memory generation. Only used if --frag is specified")
+    frag_parser.add_argument("--frag_fragmem_structure", default=None, help='known structure to filter out fragmems corresponding to non-native conformations')
     frag_parser.add_argument("--frag_database", default=openawsem.data_path.blast, help="Specify the database for fragment generation.")
     frag_parser.add_argument("--frag_fasta", default=None, help="Provide the FASTA file for fragment generation.")
     frag_parser.add_argument("--frag_N_mem", type=int, default=20, help="Number of memories to generate per fragment.")
