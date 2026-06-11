@@ -49,6 +49,13 @@ def main(argv=None):
                              "conventional overlap/memory counting, 'uniform' is the flat model")
     parser.add_argument("--min-seq-sep", type=int, default=3, dest="min_seq_sep")
     parser.add_argument("--max-seq-sep", type=int, default=9, dest="max_seq_sep")
+    parser.add_argument("--brain-damage", type=float, default=0, dest="brain_damage",
+                        help="homolog handling (local_blast/local_db): 0 all | 1 exclude "
+                             "homologs | 2 homologs except self | 0.5 self only")
+    parser.add_argument("--cutoff-identical", type=float, default=90, dest="cutoff_identical")
+    parser.add_argument("--homolog-evalue", type=float, default=0.005, dest="homolog_evalue")
+    parser.add_argument("--homolog-database", default=None, dest="homolog_database",
+                        help="BLAST db for local_db homolog detection (default cullpdb)")
     parser.add_argument("--out", default="fragment_memory.json")
     parser.add_argument("--list-methods", action="store_true", help="list usable methods and exit")
     args = parser.parse_args(argv)
@@ -65,7 +72,9 @@ def main(argv=None):
         opts.update(structure=args.structure, weight=args.weight)
     elif args.method == "local_blast":
         opts.update(database=args.database, n_mem=args.n_mem,
-                    fragment_length=args.frag_length, weight=args.weight)
+                    fragment_length=args.frag_length, weight=args.weight,
+                    brain_damage=args.brain_damage, cutoff_identical=args.cutoff_identical,
+                    homolog_evalue=args.homolog_evalue)
     elif args.method == "fragment_db":
         # fragment_db is non-parametric (sampled curves); it ignores well_width.
         opts.pop("well_width", None)
@@ -73,7 +82,9 @@ def main(argv=None):
                     n_mem=args.n_mem, fragment_length=args.frag_length)
     elif args.method == "local_db":
         opts.update(database=args.database, n_mem=args.n_mem,
-                    fragment_length=args.frag_length, weight=args.weight)
+                    fragment_length=args.frag_length, weight=args.weight,
+                    brain_damage=args.brain_damage, cutoff_identical=args.cutoff_identical,
+                    homolog_evalue=args.homolog_evalue, homolog_database=args.homolog_database)
 
     memory = generate(sequence, method=args.method, **opts)
     memory.save(args.out)

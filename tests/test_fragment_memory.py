@@ -410,6 +410,35 @@ def test_fragment_index_matches_database(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# brain_damage (homolog handling)
+# --------------------------------------------------------------------------- #
+def test_apply_brain_damage_modes():
+    from openawsem.memory.generators import homology
+    hits = pd.DataFrame({"pdb_id": ["aaaa", "bbbb", "cccc"], "chain": ["A", "A", "A"]})
+    homologs = {"aaaa": 99.0, "bbbb": 60.0}      # aaaa=self(>90), bbbb=homolog, cccc=neither
+
+    def kept(bd):
+        return set(homology.apply_brain_damage(hits, homologs, brain_damage=bd,
+                                               cutoff_identical=90)["pdb_id"])
+    assert kept(0) == {"aaaa", "bbbb", "cccc"}
+    assert kept(1) == {"cccc"}                   # exclude homologs
+    assert kept(2) == {"bbbb"}                    # homologs except self
+    assert kept(0.5) == {"aaaa"}                  # self only
+
+
+def test_local_db_brain_damage_filters_hits(tmp_path, monkeypatch):
+    from openawsem.memory.generators import homology
+    db_dir = _make_db_dir(tmp_path, {"aaaa_A": "AKLVRSTE", "bbbb_A": "AKLVRSTE",
+                                     "cccc_A": "AKLVRSTE"})
+    monkeypatch.setattr(homology, "blast_homologs", lambda *a, **k: {"aaaa": 99.0, "bbbb": 60.0})
+    for bd, expect in [(0, {"aaaa", "bbbb", "cccc"}), (1, {"cccc"}), (2, {"bbbb"}), (0.5, {"aaaa"})]:
+        ld = LocalDB(database=db_dir, fragment_length=5, min_seq_sep=3, max_seq_sep=4,
+                     n_mem=5, brain_damage=bd, homolog_database="x")
+        hits = ld._window_hits("AKLVR", ld._homologs("AKLVRSTE"))
+        assert {str(c).split("_")[0] for c in hits["chain_uid"]} == expect
+
+
+# --------------------------------------------------------------------------- #
 # selection (deterministic ranking + exactly-N)
 # --------------------------------------------------------------------------- #
 def _hit(query_start, k, evalue=0.1, bitscore=100.0):

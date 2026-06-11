@@ -71,15 +71,45 @@ class StructureBackend(FragmentBackend):
     well_width = 0.1
     weight = 1.0
 
+    # homolog handling (brain_damage), shared by every structure-based method
+    # (local_blast, web_blast, ...): 0 all | 1 exclude homologs | 2 homologs except self |
+    # 0.5 self only.  Homologs come from one full-sequence BLAST against ``homolog_database``
+    # (defaults to the method's own search ``database``).
+    database = None
+    brain_damage = 0
+    cutoff_identical = 90
+    homolog_evalue = 0.005
+    blast_exe = "psiblast"
+    num_threads = 1
+    homolog_database = None
+
     def search(self, sequence) -> pd.DataFrame:
         raise NotImplementedError
 
     def fetch(self, hit):
         raise NotImplementedError
 
+    @staticmethod
+    def _as_records(sequence):
+        """Normalize the query into an ordered list of per-record (chain) sequences."""
+        return [sequence] if isinstance(sequence, str) else list(sequence)
+
+    def _homologs(self, sequence) -> dict:
+        """Full-sequence BLAST -> ``{pdb_id: max percent identity}`` (the target's homologs)."""
+        from openawsem.memory.generators import homology
+        return homology.blast_homologs(self._as_records(sequence),
+                                       database=self.homolog_database or self.database,
+                                       blast_exe=self.blast_exe, homolog_evalue=self.homolog_evalue,
+                                       num_threads=self.num_threads, brain_damage=self.brain_damage)
+
     def _filter_hits(self, hits, sequence):
-        """Hook for method-specific hit filtering (e.g. homolog exclusion). Default: no-op."""
-        return hits
+        """Drop/keep hits per ``brain_damage`` (no-op for mode 0)."""
+        if not self.brain_damage or len(hits) == 0:
+            return hits
+        from openawsem.memory.generators import homology
+        return homology.apply_brain_damage(hits, self._homologs(sequence),
+                                           brain_damage=self.brain_damage,
+                                           cutoff_identical=self.cutoff_identical)
 
     def materialize(self, hit, scene) -> pd.DataFrame:
         """Aligned fragment: CA/CB of the hit's subject range, mapped to target residues.

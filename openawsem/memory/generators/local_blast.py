@@ -12,6 +12,7 @@ import tempfile
 
 import pandas as pd
 
+from openawsem.memory.generators import homology
 from openawsem.memory.generators.base import Registry, StructureBackend
 
 logger = logging.getLogger(__name__)
@@ -48,16 +49,6 @@ class LocalBlast(StructureBackend):
         self.cutoff_identical = cutoff_identical
         self.homolog_evalue = homolog_evalue
 
-    @staticmethod
-    def _as_records(sequence):
-        """Normalize the query into an ordered list of per-record sequences.
-
-        A plain string is one record; a list/tuple (e.g. a multi-chain FASTA) is windowed
-        record by record so a sliding window never straddles a chain/record boundary, while
-        target residues stay numbered continuously across records (1..N1, N1+1..).
-        """
-        return [sequence] if isinstance(sequence, str) else list(sequence)
-
     def search(self, sequence) -> pd.DataFrame:
         frames, base = [], 0
         for record in self._as_records(sequence):
@@ -84,66 +75,6 @@ class LocalBlast(StructureBackend):
         from openawsem.memory.structures import fetch_structure
         return fetch_structure(hit["pdb_id"], cif_dir=self.cif_dir, download=self.download_format)
 
-    # ----- homolog handling (brain_damage) ------------------------------ #
-    def _filter_hits(self, hits, sequence):
-        if not self.brain_damage or len(hits) == 0:
-            return hits
-        homologs = self._homologs(sequence)
-
-        def is_homolog(pid):
-            return pid in homologs
-
-        def is_self(pid):
-            return homologs.get(pid, 0.0) > self.cutoff_identical
-
-        if self.brain_damage == 1:        # exclude all homologs
-            keep = lambda pid: not is_homolog(pid)
-        elif self.brain_damage == 2:      # homologs only, but not self (>cutoff)
-            keep = lambda pid: is_homolog(pid) and not is_self(pid)
-        elif self.brain_damage == 0.5:    # self only (>cutoff)
-            keep = is_self
-        else:
-            return hits
-        mask = hits["pdb_id"].map(keep)
-        logger.info("brain_damage=%s: kept %d/%d hits (%d homologs found, cutoff %s%%)",
-                    self.brain_damage, int(mask.sum()), len(hits), len(homologs), self.cutoff_identical)
-        return hits[mask].reset_index(drop=True)
-
-    def _homologs(self, sequence) -> dict:
-        """Full-sequence BLAST -> ``{pdb_id: max percent identity}`` (the target's homologs).
-
-        Each record is blasted on its own so a multi-chain query does not produce spurious
-        junction-spanning homolog alignments.
-        """
-        homologs: dict = {}
-        for record in self._as_records(sequence):
-            df = self._blast_full_sequence(record)
-            for pid, pident in zip(df["pdb_id"], df["pident"]):
-                homologs[pid] = max(homologs.get(pid, 0.0), float(pident))
-        return homologs
-
-    def _blast_full_sequence(self, sequence) -> pd.DataFrame:
-        fields = "sseqid pident evalue bitscore"
-        with tempfile.NamedTemporaryFile("w", suffix=".fasta", delete=True) as fh:
-            fh.write(f">query\n{sequence}\n")
-            fh.flush()
-            cmd = [self.blast_exe, "-query", fh.name, "-db", self.database,
-                   "-num_iterations", "1", "-word_size", "3", "-evalue", str(self.homolog_evalue),
-                   "-num_threads", str(self.num_threads), "-outfmt", f"6 {fields}"]
-            try:
-                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-                raise RuntimeError(
-                    f"homolog BLAST failed; refusing to apply brain_damage={self.brain_damage} "
-                    f"on an empty homolog set (that would silently keep/drop the wrong hits)"
-                ) from exc
-        lines = [ln for ln in result.stdout.splitlines() if ln.strip() and not ln.startswith("Search has")]
-        df = pd.DataFrame([ln.split("\t") for ln in lines], columns=fields.split())
-        if len(df):
-            df["pident"] = pd.to_numeric(df["pident"], errors="coerce")
-            pdb_id, chain = zip(*df["sseqid"].map(self._parse_sseqid))
-            return df.assign(pdb_id=list(pdb_id), chain=list(chain))
-        return df.assign(pdb_id=[], chain=[])
 
     def _psiblast(self, query) -> pd.DataFrame:
         with tempfile.NamedTemporaryFile("w", suffix=".fasta", delete=True) as fh:
@@ -185,16 +116,7 @@ class LocalBlast(StructureBackend):
         df["bitscore"] = pd.to_numeric(df["bitscore"], errors="coerce")
         df["evalue"] = pd.to_numeric(df["evalue"], errors="coerce")
         df = df[(df["gaps"] <= self.max_gaps) & (df["evalue"] <= self.evalue)]
-        pdb_id, chain = zip(*df["sseqid"].map(self._parse_sseqid)) if len(df) else ([], [])
+        pdb_id, chain = zip(*df["sseqid"].map(homology.parse_sseqid)) if len(df) else ([], [])
         return df.assign(pdb_id=list(pdb_id), chain=list(chain))
 
-    @staticmethod
-    def _parse_sseqid(sseqid):
-        """``pdb|4V12|A`` or ``4v12_A`` -> (pdb_id, chain)."""
-        if sseqid.startswith("pdb|"):
-            parts = sseqid.split("|")
-            return parts[1].lower(), (parts[2] if len(parts) > 2 else None)
-        if "_" in sseqid:
-            pid, ch = sseqid.split("_", 1)
-            return pid.lower(), ch
-        return sseqid[:4].lower(), (sseqid[4:5] or None)
+    _parse_sseqid = staticmethod(homology.parse_sseqid)

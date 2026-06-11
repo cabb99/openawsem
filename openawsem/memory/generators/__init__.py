@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from openawsem.memory.generators.base import FragmentBackend, Registry, StructureBackend
 from openawsem.memory.generators import selection
+from openawsem.memory.generators import homology
 from openawsem.memory.generators.single import SingleStructure
 from openawsem.memory.generators.local_blast import LocalBlast
 from openawsem.memory.generators.fragment_db import FragmentDB
