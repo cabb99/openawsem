@@ -62,6 +62,7 @@ class FragmentIndex:
         self._chain_index = {c: i for i, c in enumerate(self.chain_names)}
         self._enc_cache: dict = {}
         self._calibration: dict = {}
+        self._seed_cache: dict = {}
 
     # ----- build / load -------------------------------------------------- #
     @staticmethod
@@ -145,32 +146,78 @@ class FragmentIndex:
             self._enc_cache[L] = (valid, codes[valid].astype(np.int8))
         return self._enc_cache[L]
 
-    def search(self, query: str, L: int | None = None, top: int = 20) -> pd.DataFrame:
+    _SEARCH_COLUMNS = ["chain_uid", "start", "fragment", "raw_score", "identity",
+                       "positive_fraction", "E_value"]
+
+    def search(self, query: str, L: int | None = None, top: int = 20, *, seeded=False,
+               seed_word=2, min_candidates=None) -> pd.DataFrame:
+        """Top-``top`` hits by BLOSUM62.  With ``seeded`` only fragments sharing an exact
+        ``seed_word``-mer with the query (at some position) are scored — a BLAST-like seed
+        step — falling back to the full scan when too few candidates are found, so the result
+        is the exact top-N whenever recall could be at risk."""
         L = L or len(query)
         if L - 1 > self.max_forward:
             raise ValueError(f"L={L} exceeds stored forward context {self.max_forward + 1}")
         rows, enc = self._encoded_for_length(L)
         if len(rows) == 0:
-            return pd.DataFrame(columns=["chain_uid", "start", "fragment", "raw_score",
-                                         "identity", "positive_fraction", "E_value"])
+            return pd.DataFrame(columns=self._SEARCH_COLUMNS)
         q = encode_sequence(query)
-        per_pos = SCORE_TABLE[q[None, :], enc]
+        cal = self._get_calibration(L, enc, len(rows))
+        if seeded and L - seed_word + 1 >= 1:
+            cand = self._candidates(q, L, seed_word)
+            if len(cand) >= max(min_candidates or top, top):
+                return self._format(cand, self.ctx[cand, :L].astype(np.int8), q, L, top, cal)
+        return self._format(rows, enc, q, L, top, cal)
+
+    def _format(self, cand_rows, codes, q, L, top, cal) -> pd.DataFrame:
+        per_pos = SCORE_TABLE[q[None, :], codes]
         scores = per_pos.sum(axis=1)
-        identity = (enc == q[None, :]).sum(axis=1) / L
+        identity = (codes == q[None, :]).sum(axis=1) / L
         positive = (per_pos > 0).sum(axis=1) / L
         order = np.argsort(-scores, kind="stable")[:top]
-        sel = rows[order]
-        fragments = ["".join(_DECODE[enc[o]]) for o in order]
-        cal = self._get_calibration(L, enc, len(rows))
+        sel = cand_rows[order]
         return pd.DataFrame({
             "chain_uid": [self.chain_names[c] for c in self.chain_code[sel]],
             "start": self.internal_index[sel],
-            "fragment": fragments,
+            "fragment": ["".join(_DECODE[codes[o]]) for o in order],
             "raw_score": scores[order],
             "identity": np.round(identity[order], 4),
             "positive_fraction": np.round(positive[order], 4),
             "E_value": self._evalue(scores[order], cal),
         }).reset_index(drop=True)
+
+    # ----- BLAST-like k-mer seeding ------------------------------------- #
+    def _seeds_for_length(self, L, w):
+        """Per seed position, the valid length-L fragment rows sorted by their exact w-mer key."""
+        key = (L, w)
+        if key not in self._seed_cache:
+            rows, enc = self._encoded_for_length(L)
+            base = len(_DECODE)                       # 21 symbols (codes 0..20)
+            seeds = []
+            for p in range(L - w + 1):
+                wkey = np.zeros(len(enc), dtype=np.int64)
+                for k in range(w):
+                    wkey = wkey * base + enc[:, p + k].astype(np.int64)
+                o = np.argsort(wkey, kind="stable")
+                seeds.append((wkey[o], rows[o]))
+            self._seed_cache[key] = seeds
+        return self._seed_cache[key]
+
+    def _candidates(self, q, L, w) -> np.ndarray:
+        """Union of fragment rows sharing an exact w-mer with ``q`` at any position."""
+        base = len(_DECODE)
+        parts = []
+        for p, (skeys, sids) in enumerate(self._seeds_for_length(L, w)):
+            qkey = 0
+            for k in range(w):
+                qkey = qkey * base + int(q[p + k])
+            lo = np.searchsorted(skeys, qkey, side="left")
+            hi = np.searchsorted(skeys, qkey, side="right")
+            if hi > lo:
+                parts.append(sids[lo:hi])
+        if not parts:
+            return np.empty(0, dtype=self.internal_index.dtype)
+        return np.unique(np.concatenate(parts))
 
     def _get_calibration(self, L, enc, n, n_samples=200_000, seed=0):
         if L in self._calibration:

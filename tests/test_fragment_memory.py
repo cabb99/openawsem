@@ -409,6 +409,20 @@ def test_fragment_index_matches_database(tmp_path):
     assert isinstance(mem, MemoryWells) and len(mem) > 0
 
 
+def test_fragment_index_seeded_search(tmp_path):
+    from openawsem.memory.retrieval import FragmentIndex
+    db_dir = _make_db_dir(tmp_path, {"C1": "AKLVRSTEDM", "C2": "EDMWFAKLVR"})
+    FragmentIndex.build(db_dir)
+    idx = FragmentIndex.load(db_dir)
+    ex = idx.search("KLVRS", L=5, top=8)
+    seeded = idx.search("KLVRS", L=5, top=8, seeded=True, seed_word=2)
+    assert (seeded.iloc[0]["chain_uid"], int(seeded.iloc[0]["start"])) == \
+           (ex.iloc[0]["chain_uid"], int(ex.iloc[0]["start"]))         # top hit recovered
+    # forcing the candidate floor above the DB size falls back to the exact scan
+    fb = idx.search("KLVRS", L=5, top=8, seeded=True, min_candidates=10 ** 9)
+    pd.testing.assert_frame_equal(ex, fb)
+
+
 # --------------------------------------------------------------------------- #
 # brain_damage (homolog handling)
 # --------------------------------------------------------------------------- #

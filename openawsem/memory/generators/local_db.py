@@ -51,8 +51,9 @@ class LocalDB(FragmentBackend):
     def __init__(self, database, *, n_mem=20, fragment_length=9, min_seq_sep=3,
                  max_seq_sep=9, well_width=0.1, weight=1.0, brain_damage=0,
                  cutoff_identical=90, homolog_evalue=0.005, homolog_database=None,
-                 blast_exe="psiblast", num_threads=1, homolog_oversample=10):
+                 blast_exe="psiblast", num_threads=1, homolog_oversample=10, seeded=True):
         self.database = str(database)
+        self.seeded = bool(seeded)
         self.n_mem = int(n_mem)
         self.fragment_length = int(fragment_length)
         self.min_seq_sep = int(min_seq_sep)
@@ -98,10 +99,17 @@ class LocalDB(FragmentBackend):
                                        blast_exe=self.blast_exe, homolog_evalue=self.homolog_evalue,
                                        num_threads=self.num_threads, brain_damage=self.brain_damage)
 
+    def _search(self, window, top):
+        """Search the DB for ``window``; use the seed index when available (FragmentIndex)."""
+        from openawsem.memory.retrieval import FragmentIndex
+        if self.seeded and isinstance(self.db, FragmentIndex):
+            return self.db.search(window, L=self.fragment_length, top=top, seeded=True)
+        return self.db.search(window, L=self.fragment_length, top=top)
+
     def _window_hits(self, window, homologs):
         """Search a window, apply brain_damage by ``pdb_id``, keep the top ``n_mem`` survivors."""
         top = self.n_mem * self.homolog_oversample if self.brain_damage else self.n_mem
-        hits = self.db.search(window, L=self.fragment_length, top=top)
+        hits = self._search(window, top)
         if self.brain_damage and len(hits):
             hits = hits.assign(pdb_id=[str(c).split("_")[0] for c in hits["chain_uid"]])
             hits = homology.apply_brain_damage(hits, homologs, brain_damage=self.brain_damage,
