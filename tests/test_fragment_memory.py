@@ -453,6 +453,30 @@ def test_local_db_brain_damage_filters_hits(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# energy_at (fragment-memory energy of a structure)
+# --------------------------------------------------------------------------- #
+def test_energy_at_closed_form():
+    m = _wells([
+        dict(resid_i=1, name_i="CA", resid_j=5, name_j="CA", r_mean=0.5, sigma=0.13, weight=2.0),
+        dict(resid_i=1, name_i="CA", resid_j=5, name_j="CA", r_mean=0.7, sigma=0.10, weight=1.0),
+    ])
+    coords = {("CA", 1): np.zeros(3), ("CA", 5): np.array([0.6, 0.0, 0.0])}   # r = 0.6 nm
+    expect = -(2.0 * _gauss(0.6, 0.5, 0.13) + 1.0 * _gauss(0.6, 0.7, 0.10))
+    assert abs(m.energy_at(coords, k_fm=1.0) - expect) < 1e-9
+
+
+def test_energy_at_skips_missing_atoms_and_table():
+    # a CB pair with no CB coords (e.g. GLY) is skipped; MemoryTable interpolates
+    wells = _wells([dict(resid_i=2, name_i="CB", resid_j=6, name_j="CA", r_mean=0.5, sigma=0.1, weight=1.0)])
+    assert wells.energy_at({("CA", 6): np.zeros(3)}) == 0.0          # CB(2) missing -> skipped
+    table = MemoryTable(pd.DataFrame({
+        "resid_i": [1, 1], "name_i": ["CA", "CA"], "resid_j": [5, 5], "name_j": ["CA", "CA"],
+        "r": [0.4, 0.8], "energy": [1.0, 3.0]}))
+    coords = {("CA", 1): np.zeros(3), ("CA", 5): np.array([0.6, 0.0, 0.0])}   # r = 0.6 -> interp 2.0
+    assert abs(table.energy_at(coords, k_fm=1.0) - (-2.0)) < 1e-9
+
+
+# --------------------------------------------------------------------------- #
 # selection (deterministic ranking + exactly-N)
 # --------------------------------------------------------------------------- #
 def _hit(query_start, k, evalue=0.1, bitscore=100.0):

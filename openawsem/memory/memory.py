@@ -113,6 +113,53 @@ class FragmentMemory(pd.DataFrame):
         out.attrs.update(self.attrs)
         return out
 
+    # ----- energy of a structure ---------------------------------------- #
+    def _value_at(self, sub, r) -> float:
+        """The per-pair tabulated value at distance ``r`` (nm) for the rows of one pair."""
+        raise NotImplementedError
+
+    @staticmethod
+    def _structure_coords(structure) -> dict:
+        """``{(name, resid): xyz_nm}`` for CA/CB, from a dict, ``OpenMMAWSEMSystem``,
+        molscene ``Scene`` or a structure file path."""
+        if isinstance(structure, dict):
+            return structure
+        if hasattr(structure, "ca") and hasattr(structure, "cb") and hasattr(structure, "resi"):
+            try:
+                from openmm.unit import nanometer
+            except ModuleNotFoundError:  # pragma: no cover
+                from simtk.unit import nanometer
+            pos = np.asarray(structure.pdb.getPositions().value_in_unit(nanometer))
+            ca, cb, resi = set(structure.ca), set(structure.cb), structure.resi
+            out = {}
+            for i in range(structure.natoms):
+                if i in ca:
+                    out[("CA", 1 + int(resi[i]))] = pos[i]
+                if i in cb:
+                    out[("CB", 1 + int(resi[i]))] = pos[i]
+            return out
+        from openawsem.memory import _molscene
+        scene = _molscene.load_structure(structure) if isinstance(structure, (str, Path)) else structure
+        atoms = _molscene.cacb_nm(scene)
+        return {(n, int(r)): np.array([x, y, z], dtype=float) for n, r, x, y, z in
+                zip(atoms["name"], atoms["resid"], atoms["x"], atoms["y"], atoms["z"])}
+
+    def energy_at(self, structure, *, k_fm=0.04184) -> float:
+        """Fragment-memory energy ``-k_fm * sum_pairs T_p(r_p)`` of ``structure`` under this
+        memory, where ``r_p`` is the CA/CB distance of each pair in ``structure``.  Pairs with
+        a missing atom (e.g. a GLY CB) are skipped."""
+        if len(self) == 0:
+            return 0.0
+        coords = self._structure_coords(structure)
+        keys = ["resid_i", "name_i", "resid_j", "name_j"]
+        total = 0.0
+        for (ri, ni, rj, nj), sub in pd.DataFrame(self).groupby(keys, sort=False):
+            ci, cj = coords.get((ni, int(ri))), coords.get((nj, int(rj)))
+            if ci is None or cj is None:
+                continue
+            total += self._value_at(sub, float(np.linalg.norm(np.asarray(ci) - np.asarray(cj))))
+        return -float(k_fm) * total
+
     # ----- OpenMM force -------------------------------------------------- #
     def to_openmm_force(self, oa, *, k_fm=0.04184, caOnly=False, forceGroup=23,
                         rmin=0.0, rmax=5.0, dr=0.01, cache=None, use_cache=False, debug=False):
@@ -367,6 +414,12 @@ class MemoryWells(FragmentMemory):
         """Alias for :meth:`tabulate` (Gaussian wells -> sampled MemoryTable)."""
         return self.tabulate(target, rmin=rmin, rmax=rmax, dr=dr)
 
+    def _value_at(self, sub, r) -> float:
+        rm = sub["r_mean"].to_numpy()
+        sg = sub["sigma"].to_numpy()
+        w = sub["weight"].to_numpy()
+        return float((w * np.exp(-((r - rm) ** 2) / (2.0 * sg ** 2))).sum())
+
     def _tabulate_arrays(self, target, rmin, rmax, dr):
         amap = self.atom_index_map(target)
         r = np.arange(rmin, rmax, dr)
@@ -429,6 +482,11 @@ class MemoryTable(FragmentMemory):
     @classmethod
     def empty(cls) -> "MemoryTable":
         return cls(pd.DataFrame({c: pd.Series(dtype=t) for c, t in cls._DTYPES.items()}))
+
+    def _value_at(self, sub, r) -> float:
+        rr = sub["r"].to_numpy()
+        order = np.argsort(rr)
+        return float(np.interp(r, rr[order], sub["energy"].to_numpy()[order]))
 
     def _tabulate_arrays(self, target, rmin, rmax, dr):
         amap = self.atom_index_map(target)
