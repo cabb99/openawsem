@@ -173,10 +173,21 @@ class FragmentMemory(pd.DataFrame):
 
     @classmethod
     def _class_named(cls, name) -> type:
-        for sub in cls.__subclasses__():
-            if sub.__name__ == name:
-                return sub
-        return MemoryWells
+        """Resolve a stored class name to a FragmentMemory subclass.
+
+        Search the whole subclass tree rooted at :class:`FragmentMemory` (not ``cls``) so
+        ``read`` reconstructs the right class regardless of which class it is called on
+        (e.g. ``MemoryTable.read`` of a MemoryTable payload).
+        """
+        def walk(klass):
+            for sub in klass.__subclasses__():
+                if sub.__name__ == name:
+                    return sub
+                found = walk(sub)
+                if found is not None:
+                    return found
+            return None
+        return walk(FragmentMemory) or MemoryWells
 
     # ----- coarse-grained Scene bridge ---------------------------------- #
     def attach_to_scene(self, scene):

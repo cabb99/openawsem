@@ -42,6 +42,11 @@ def main(argv=None):
     parser.add_argument("--frag-length", type=int, default=9, dest="frag_length")
     parser.add_argument("--weight", type=float, default=1.0)
     parser.add_argument("--well-width", type=float, default=0.1, dest="well_width")
+    parser.add_argument("--scale", type=float, default=1.0,
+                        help="global well-depth multiplier for --method fragment_db")
+    parser.add_argument("--weighting", default="uniform", choices=["uniform", "multiplicity"],
+                        help="fragment_db per-pair weighting: 'multiplicity' reproduces the "
+                             "conventional overlap/memory counting, 'uniform' is the flat model")
     parser.add_argument("--min-seq-sep", type=int, default=3, dest="min_seq_sep")
     parser.add_argument("--max-seq-sep", type=int, default=9, dest="max_seq_sep")
     parser.add_argument("--out", default="fragment_memory.json")
@@ -59,6 +64,14 @@ def main(argv=None):
     if args.method == "single":
         opts.update(structure=args.structure, weight=args.weight)
     elif args.method == "local_blast":
+        opts.update(database=args.database, n_mem=args.n_mem,
+                    fragment_length=args.frag_length, weight=args.weight)
+    elif args.method == "fragment_db":
+        # fragment_db is non-parametric (sampled curves); it ignores well_width.
+        opts.pop("well_width", None)
+        opts.update(database=args.database, scale=args.scale, weighting=args.weighting,
+                    n_mem=args.n_mem, fragment_length=args.frag_length)
+    elif args.method == "local_db":
         opts.update(database=args.database, n_mem=args.n_mem,
                     fragment_length=args.frag_length, weight=args.weight)
 

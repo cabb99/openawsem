@@ -17,7 +17,8 @@ import pandas as pd
 import pytest
 
 from openawsem.memory import FragmentMemory, MemoryTable, MemoryWells, available_methods
-from openawsem.memory.generators import LocalBlast, Registry, SingleStructure, selection
+from openawsem.memory.generators import (
+    FragmentDB, LocalBlast, LocalDB, Registry, SingleStructure, selection)
 
 data_path = Path("tests") / "data"
 
@@ -124,6 +125,21 @@ def test_memory_json_roundtrip(tmp_path):
     assert loaded.params["well_width"] == 0.1 and loaded.provenance["method"] == "test"
 
 
+def test_memory_table_json_roundtrip_preserves_class(tmp_path):
+    """A MemoryTable payload must round-trip to a MemoryTable, whichever class read()
+    is called on (the stored class is resolved against the whole FragmentMemory tree)."""
+    m = MemoryTable(pd.DataFrame([
+        dict(resid_i=1, name_i="CA", resid_j=5, name_j="CA", r=0.5, energy=2.0),
+        dict(resid_i=1, name_i="CA", resid_j=5, name_j="CA", r=0.6, energy=3.0),
+    ]))
+    p = tmp_path / "table.json"
+    m.save(p)
+    for reader in (MemoryTable.read, FragmentMemory.read, MemoryWells.read):
+        loaded = reader(p)
+        assert isinstance(loaded, MemoryTable)
+        assert list(loaded.columns) == ["resid_i", "name_i", "resid_j", "name_j", "r", "energy"]
+
+
 def test_cache_key_invalidation():
     m = _wells([dict(resid_i=1, name_i="CA", resid_j=5, name_j="CA", r_mean=0.5, sigma=0.13, weight=1.0)])
     k = m.cache_key(rmin=0, rmax=5, dr=0.01)
@@ -141,6 +157,256 @@ def test_registry_usable_and_experimental():
         Registry.create("alphafold")  # experimental stub
     with pytest.raises(ValueError):
         Registry.create("nonexistent_method")
+
+
+# --------------------------------------------------------------------------- #
+# fragment_db backend (averaged-database statistics -> MemoryTable)
+# --------------------------------------------------------------------------- #
+AA20 = "ARNDCQEGHILKMFPSTWYV"
+ATOM_PAIRS9 = ["CA-CA", "CA-CB", "CA-O", "CB-CA", "CB-CB", "CB-O", "O-CA", "O-CB", "O-O"]
+
+
+def _make_tensor_npz(path):
+    """A tiny but real-shaped tensor db: one Gaussian bump per cell at a cell-dependent mean."""
+    seps = np.arange(1, 10)
+    grid1d = np.linspace(0.0, 50.0, 500)            # Angstrom, like the real db
+    grid = np.repeat(grid1d[None, :], len(seps), axis=0)
+    nap, nsep, naa = len(ATOM_PAIRS9), len(seps), len(AA20)
+    density = np.zeros((nap, nsep, naa, naa, 500), dtype=np.float32)
+    count = np.zeros((nap, nsep, naa, naa), dtype=np.float32)
+    for a in range(nap):
+        for s in range(nsep):
+            # a distinct, recognizable mean (Angstrom) per (atom_pair, sep); unit-integral bump
+            mean = 4.0 + 0.5 * a + 1.0 * s
+            bump = np.exp(-0.5 * ((grid1d - mean) / 1.2) ** 2)
+            bump /= bump.sum() * (grid1d[1] - grid1d[0])
+            density[a, s, :, :, :] = bump[None, None, :].astype(np.float32)
+            count[a, s, :, :] = 1000.0 + a + s
+    np.savez(path, local_density=density, local_count=count, local_grid=grid,
+             contact_density=np.zeros((2, nsep, naa, naa, 500), dtype=np.float32),
+             contact_count=np.zeros((2, nsep, naa, naa), dtype=np.float32),
+             contact_grid=np.repeat(np.linspace(0, 15, 500)[None, :], 2, axis=0),
+             atom_pairs=np.array(ATOM_PAIRS9), seps=seps, aa=np.array(list(AA20)),
+             contact_shells=np.array([[3.5, 6.5], [6.5, 9.5]]),
+             sigma_coeff=1.0, sigma_exp=0.15, sigma_scale=1.0)
+    return path
+
+
+def test_fragment_db_in_registry():
+    assert "fragment_db" in available_methods()
+    with pytest.raises(ValueError):                 # no database, no env var
+        Registry.create("fragment_db", database=None)
+
+
+def test_fragment_db_schema_and_coverage(tmp_path):
+    db = _make_tensor_npz(tmp_path / "tensors.npz")
+    seq = "AKLVRSTEDM"                               # 10 standard residues, no glycine
+    mem = FragmentDB(database=str(db)).generate(seq)
+    assert isinstance(mem, MemoryTable)
+    assert list(mem.columns) == ["resid_i", "name_i", "resid_j", "name_j", "r", "energy"]
+    # exactly the 4 CA/CB orderings and sep window 3..9
+    assert set(zip(mem["name_i"], mem["name_j"])) == {("CA", "CA"), ("CA", "CB"),
+                                                      ("CB", "CA"), ("CB", "CB")}
+    assert set((mem["resid_j"] - mem["resid_i"]).unique()) == set(range(3, 10))
+    # one curve (500 samples) per (residue pair, atom pair); count residue pairs in [3,9]
+    n_res_pairs = sum(max(0, len(seq) - sep) for sep in range(3, 10))
+    assert len(mem) == n_res_pairs * 4 * 500
+    assert mem.provenance["method"] == "fragment_db" and mem.provenance["n_skipped"] == 0
+
+
+def test_fragment_db_curve_matches_tensor_cell(tmp_path):
+    db = _make_tensor_npz(tmp_path / "tensors.npz")
+    seq = "AKLVRSTED"
+    scale = 7.0
+    mem = FragmentDB(database=str(db), scale=scale).generate(seq)
+    raw = np.load(db, allow_pickle=True)
+    # pair resid_i=2 (K), resid_j=6 (S), sep=4, CB-CA
+    ai, aj = AA20.index("K"), AA20.index("S")
+    apidx, sidx = ATOM_PAIRS9.index("CB-CA"), 3      # seps[3] == 4
+    ref = raw["local_density"][apidx, sidx, ai, aj] * scale
+    sub = mem[(mem.resid_i == 2) & (mem.name_i == "CB") &
+              (mem.resid_j == 6) & (mem.name_j == "CA")].sort_values("r")
+    np.testing.assert_allclose(sub["energy"].to_numpy(), ref, rtol=1e-5, atol=1e-7)
+    # r is reported in nm (Angstrom grid / 10)
+    np.testing.assert_allclose(sub["r"].to_numpy(), raw["local_grid"][sidx] / 10.0, atol=1e-9)
+
+
+def test_fragment_db_skips_glycine_cb_and_nonstandard(tmp_path):
+    db = _make_tensor_npz(tmp_path / "tensors.npz")
+    seq = "AKLGRSTXD"                                # G at resid 4, X (non-standard) at resid 8
+    mem = FragmentDB(database=str(db)).generate(seq)
+    gly_cb = mem[((mem.name_i == "CB") & (mem.resid_i == 4)) |
+                 ((mem.name_j == "CB") & (mem.resid_j == 4))]
+    assert len(gly_cb) == 0
+    assert not ((mem["resid_i"] == 8) | (mem["resid_j"] == 8)).any()  # X pairs dropped
+    assert mem.provenance["n_skipped"] > 0
+
+
+def test_fragment_db_multichain_no_cross_chain_pairs(tmp_path):
+    db = _make_tensor_npz(tmp_path / "tensors.npz")
+    mem = FragmentDB(database=str(db)).generate(["AKLVRST", "EDKLVRS"])  # two 7-mers
+    # residues 1..7 are chain 1, 8..14 chain 2; no pair may straddle the boundary
+    crosses = (mem["resid_i"] <= 7) & (mem["resid_j"] >= 8)
+    assert not crosses.any()
+    assert mem["resid_j"].max() == 14
+
+
+def test_fragment_db_window_counting():
+    # interior pair: n_windows == fragment_length - sep
+    assert FragmentDB._n_windows(10, 13, 20, 9) == 6        # sep 3, L 9
+    assert FragmentDB._n_windows(10, 18, 20, 9) == 1        # sep 8
+    # tails have fewer overlapping windows
+    assert FragmentDB._n_windows(1, 4, 20, 9) == 1
+    # sep >= fragment_length -> no window contains the pair
+    assert FragmentDB._n_windows(1, 11, 20, 9) == 0
+
+
+def test_fragment_db_multiplicity_reproduces_overlap_counting(tmp_path):
+    db = _make_tensor_npz(tmp_path / "tensors.npz")
+    seq = "A" * 20                                          # long enough for interior windows
+    n_mem = 20
+    mem = FragmentDB(database=str(db), weighting="multiplicity", n_mem=n_mem,
+                     fragment_length=9).generate(seq)
+    raw = np.load(db, allow_pickle=True)
+    # interior pair resid 10-13 (sep 3): weight = n_mem * (L-sep) * sigma_A(sep) * sqrt(2pi)
+    sep, sidx = 3, 2
+    ai = aj = AA20.index("A")
+    apidx = ATOM_PAIRS9.index("CA-CA")
+    sigma_a = 1.0 * sep ** 0.15 * 1.0
+    weight = n_mem * (9 - sep) * sigma_a * np.sqrt(2 * np.pi)
+    ref = raw["local_density"][apidx, sidx, ai, aj] * weight
+    sub = mem[(mem.resid_i == 10) & (mem.name_i == "CA") &
+              (mem.resid_j == 13) & (mem.name_j == "CA")].sort_values("r")
+    np.testing.assert_allclose(sub["energy"].to_numpy(), ref, rtol=1e-5, atol=1e-6)
+    # multiplicity drops sep >= fragment_length (9) entirely
+    assert ((mem["resid_j"] - mem["resid_i"]) < 9).all()
+    # deeper wells at small separation than large (more overlapping windows)
+    d3 = mem[(mem.resid_j - mem.resid_i == 3)]["energy"].max()
+    d8 = mem[(mem.resid_j - mem.resid_i == 8)]["energy"].max()
+    assert d3 > d8
+
+
+def test_fragment_db_invalid_weighting(tmp_path):
+    db = _make_tensor_npz(tmp_path / "tensors.npz")
+    with pytest.raises(ValueError):
+        FragmentDB(database=str(db), weighting="bogus")
+
+
+def test_fragment_db_tabulates_to_finite_nonzero(tmp_path):
+    db = _make_tensor_npz(tmp_path / "tensors.npz")
+    seq = "AKLVRSTED"
+    mem = FragmentDB(database=str(db), scale=10.0).generate(seq)
+    # a synthetic target atom map covering the CA/CB atoms used
+    amap = {}
+    idx = 0
+    for resid in range(1, len(seq) + 1):
+        amap[("CA", resid)] = idx; idx += 1
+        amap[("CB", resid)] = idx; idx += 1
+    pairs, table = mem._tabulate_arrays(amap, 0.0, 5.0, 0.01)
+    assert len(pairs) > 0
+    assert np.isfinite(table).all() and table.max() > 0
+
+
+# --------------------------------------------------------------------------- #
+# local_db backend (real fragments retrieved from a residue-centric database)
+# --------------------------------------------------------------------------- #
+def _dist(s, X, Y):
+    """Position-independent synthetic distance (Angstrom): depends only on sep + atom pair."""
+    return round(3.8 * s + 0.5 * (X == "CB") + 0.3 * (Y == "CB")
+                 + 0.1 * (X == "O") + 0.2 * (Y == "O"), 4)
+
+
+def _make_db_dir(tmp_path, chains, ctx_len=5, max_sep=4):
+    """Write a tiny synthetic ``residues.csv`` (the schema FragmentDatabase reads)."""
+    atom_pairs = [(x, y) for x in ("CA", "CB", "O") for y in ("CA", "CB", "O")]
+    rows = []
+    for cname, seq in chains.items():
+        for i, aa in enumerate(seq):
+            row = {"chain_uid": cname, "internal_index": i, "segment_id": 0,
+                   "parent1": aa, "resname3": "XXX"}
+            for k in range(ctx_len):
+                row[f"ctx_p{k}"] = seq[i + k] if i + k < len(seq) else "-"
+            for s in range(0, max_sep + 1):
+                for (X, Y) in atom_pairs:
+                    row[f"d_s{s}_{X}_{Y}"] = _dist(s, X, Y) if i + s < len(seq) else ""
+            rows.append(row)
+    d = tmp_path / "db"
+    d.mkdir()
+    pd.DataFrame(rows).to_csv(d / "residues.csv", index=False)
+    return str(d)
+
+
+def test_local_db_self_hit_retrieves_itself(tmp_path):
+    from openawsem.memory.retrieval import FragmentDatabase
+    db = FragmentDatabase.load(_make_db_dir(tmp_path, {"C1": "AKLVRSTE", "C2": "EDMWFAKL"}))
+    hits = db.search("KLVRS", L=5, top=5)
+    assert hits.iloc[0]["identity"] == 1.0
+    assert ((hits["chain_uid"] == "C1") & (hits["start"] == 1)).any()
+
+
+def test_local_db_generate_wells(tmp_path):
+    db_dir = _make_db_dir(tmp_path, {"C1": "AKLVRSTE", "C2": "EDMWFAKL"})
+    mem = LocalDB(database=db_dir, fragment_length=5, min_seq_sep=3, max_seq_sep=4,
+                  n_mem=5).generate("AKLVRSTE")
+    assert isinstance(mem, MemoryWells) and len(mem) > 0
+    assert set(zip(mem["name_i"], mem["name_j"])) == {("CA", "CA"), ("CA", "CB"),
+                                                      ("CB", "CA"), ("CB", "CB")}
+    assert set((mem["resid_j"] - mem["resid_i"]).unique()) == {3, 4}
+    # distances are position-independent here, so every CA-CA sep-3 well shares r_mean = d/10
+    caca3 = mem[(mem.name_i == "CA") & (mem.name_j == "CA") & (mem.resid_j - mem.resid_i == 3)]
+    np.testing.assert_allclose(caca3["r_mean"].to_numpy(), _dist(3, "CA", "CA") / 10.0)
+    np.testing.assert_allclose(caca3["sigma"].to_numpy(), 0.1 * 3 ** 0.15)
+    cbcb4 = mem[(mem.name_i == "CB") & (mem.name_j == "CB") & (mem.resid_j - mem.resid_i == 4)]
+    np.testing.assert_allclose(cbcb4["r_mean"].to_numpy(), _dist(4, "CB", "CB") / 10.0)
+    assert mem.provenance["method"] == "local_db" and mem.provenance["n_windows"] == 4
+
+
+def test_local_db_skips_glycine_cb(tmp_path):
+    db_dir = _make_db_dir(tmp_path, {"C1": "AKGVRSTE"})           # G at index 2 -> resid 3
+    mem = LocalDB(database=db_dir, fragment_length=5, min_seq_sep=3, max_seq_sep=4,
+                  n_mem=5).generate("AKGVRSTE")
+    gly_cb = mem[((mem.name_i == "CB") & (mem.resid_i == 3)) |
+                 ((mem.name_j == "CB") & (mem.resid_j == 3))]
+    assert len(gly_cb) == 0
+
+
+def test_local_db_multichain_no_cross_chain(tmp_path):
+    db_dir = _make_db_dir(tmp_path, {"C1": "AKLVRSTE", "C2": "EDMWFAKL"})
+    mem = LocalDB(database=db_dir, fragment_length=5, min_seq_sep=3, max_seq_sep=4,
+                  n_mem=5).generate(["AKLVRSTE", "EDMWFAKL"])
+    assert mem["resid_j"].max() == 16                            # 8 + 8 residues
+    assert not ((mem["resid_i"] <= 8) & (mem["resid_j"] >= 9)).any()
+
+
+def test_fragment_index_matches_database(tmp_path):
+    """The binary index must reproduce the CSV engine's search hits and fragment distances."""
+    from openawsem.memory.retrieval import FragmentDatabase, FragmentIndex
+    db_dir = _make_db_dir(tmp_path, {"C1": "AKLVRSTE", "C2": "EDMWFAKL"})
+    db = FragmentDatabase.load(db_dir)
+    assert not FragmentIndex.exists(db_dir)
+    FragmentIndex.build(db_dir)
+    assert FragmentIndex.exists(db_dir)
+    idx = FragmentIndex.load(db_dir)
+
+    keys = ["chain_uid", "start"]
+    s_db = db.search("KLVRS", L=5, top=8).sort_values(keys).reset_index(drop=True)
+    s_ix = idx.search("KLVRS", L=5, top=8).sort_values(keys).reset_index(drop=True)
+    assert list(s_db["chain_uid"]) == list(s_ix["chain_uid"])
+    assert list(s_db["start"]) == list(s_ix["start"])
+    np.testing.assert_allclose(s_db["raw_score"].to_numpy(), s_ix["raw_score"].to_numpy())
+    np.testing.assert_allclose(s_db["E_value"].to_numpy(), s_ix["E_value"].to_numpy())
+
+    f_db = db.get_fragment("C1", 1, 5).sort_values(["internal_i", "internal_j"]).reset_index(drop=True)
+    f_ix = idx.get_fragment("C1", 1, 5).sort_values(["internal_i", "internal_j"]).reset_index(drop=True)
+    assert list(f_db["sep"]) == list(f_ix["sep"])
+    for col in ("d_CA_CA", "d_CA_CB", "d_CB_CA", "d_CB_CB"):
+        np.testing.assert_allclose(f_db[col].astype(float).to_numpy(),
+                                   f_ix[col].astype(float).to_numpy())
+
+    # LocalDB transparently uses the index when present
+    mem = LocalDB(database=db_dir, fragment_length=5, min_seq_sep=3, max_seq_sep=4,
+                  n_mem=5).generate("AKLVRSTE")
+    assert isinstance(mem, MemoryWells) and len(mem) > 0
 
 
 # --------------------------------------------------------------------------- #

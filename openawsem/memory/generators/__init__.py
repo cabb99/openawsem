@@ -10,6 +10,8 @@ from openawsem.memory.generators.base import FragmentBackend, Registry, Structur
 from openawsem.memory.generators import selection
 from openawsem.memory.generators.single import SingleStructure
 from openawsem.memory.generators.local_blast import LocalBlast
+from openawsem.memory.generators.fragment_db import FragmentDB
+from openawsem.memory.generators.local_db import LocalDB
 
 # importing the remaining modules registers their (experimental) backends
 from openawsem.memory.generators import (  # noqa: F401
@@ -23,5 +25,5 @@ from openawsem.memory.generators import (  # noqa: F401
 
 __all__ = [
     "Registry", "FragmentBackend", "StructureBackend", "selection",
-    "SingleStructure", "LocalBlast",
+    "SingleStructure", "LocalBlast", "FragmentDB", "LocalDB",
 ]
