@@ -219,6 +219,25 @@ class FragmentIndex:
             return np.empty(0, dtype=self.internal_index.dtype)
         return np.unique(np.concatenate(parts))
 
+    def topk_pool(self, q, L, top, *, seed_word=2, keep_rows=None):
+        """The ``top`` length-``L`` fragment rows most similar to encoded query ``q``, as
+        ``(rows, codes, scores)`` (BLOSUM62, stable order).  Seeded by exact ``seed_word``-mers
+        with a full-scan fallback when too few candidates are found.  ``keep_rows`` is an optional
+        boolean mask over all rows (e.g. a brain_damage exclusion) applied before ranking.
+
+        Shared primitive for the soft (score-weighted) ``local_db`` memory and its mutation-ΔE
+        engine: both anchor a candidate pool to a window and weight it by score."""
+        cand = self._candidates(q, L, seed_word)
+        if keep_rows is not None and len(cand):
+            cand = cand[keep_rows[cand]]
+        if len(cand) < top:
+            allrows, _ = self._encoded_for_length(L)
+            cand = allrows[keep_rows[allrows]] if keep_rows is not None else allrows
+        codes = self.ctx[cand, :L]
+        scores = SCORE_TABLE[q[None, :], codes].sum(axis=1)
+        order = np.argsort(-scores, kind="stable")[:top]
+        return cand[order], codes[order].astype(np.int16), scores[order].astype(np.float64)
+
     def _get_calibration(self, L, enc, n, n_samples=200_000, seed=0):
         if L in self._calibration:
             return self._calibration[L]

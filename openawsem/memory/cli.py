@@ -56,6 +56,12 @@ def main(argv=None):
     parser.add_argument("--homolog-evalue", type=float, default=0.005, dest="homolog_evalue")
     parser.add_argument("--homolog-database", default=None, dest="homolog_database",
                         help="BLAST db for local_db homolog detection (default cullpdb)")
+    parser.add_argument("--soft", action="store_true",
+                        help="local_db: score-weighted (softmax) memory instead of hard top-N")
+    parser.add_argument("--soft-temp", type=float, default=2.0, dest="soft_temp",
+                        help="local_db --soft softmax temperature (lower = sharper; default 2.0 folds best)")
+    parser.add_argument("--soft-pool", type=int, default=80, dest="soft_pool",
+                        help="local_db --soft candidate pool size per window")
     parser.add_argument("--out", default="fragment_memory.json")
     parser.add_argument("--list-methods", action="store_true", help="list usable methods and exit")
     args = parser.parse_args(argv)
@@ -84,7 +90,9 @@ def main(argv=None):
         opts.update(database=args.database, n_mem=args.n_mem,
                     fragment_length=args.frag_length, weight=args.weight,
                     brain_damage=args.brain_damage, cutoff_identical=args.cutoff_identical,
-                    homolog_evalue=args.homolog_evalue, homolog_database=args.homolog_database)
+                    homolog_evalue=args.homolog_evalue, homolog_database=args.homolog_database,
+                    weighting="soft" if args.soft else "hard",
+                    soft_temp=args.soft_temp, soft_pool=args.soft_pool)
 
     memory = generate(sequence, method=args.method, **opts)
     memory.save(args.out)

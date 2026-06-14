@@ -336,6 +336,37 @@ def _make_db_dir(tmp_path, chains, ctx_len=5, max_sep=4):
     return str(d)
 
 
+def _make_varied_db_dir(tmp_path, chains, ctx_len=5, max_sep=4):
+    """Like ``_make_db_dir`` but distances vary per chain + position, so distinct fragments have
+    distinct geometry — required for soft reweighting / mutation ΔE to be non-degenerate.  Builds
+    the binary index (``weighting='soft'`` needs it)."""
+    from openawsem.memory.retrieval import FragmentIndex
+    atom_pairs = [(x, y) for x in ("CA", "CB", "O") for y in ("CA", "CB", "O")]
+    rows = []
+    for ci, (cname, seq) in enumerate(chains.items()):
+        for i, aa in enumerate(seq):
+            row = {"chain_uid": cname, "internal_index": i, "segment_id": 0,
+                   "parent1": aa, "resname3": "XXX"}
+            for k in range(ctx_len):
+                row[f"ctx_p{k}"] = seq[i + k] if i + k < len(seq) else "-"
+            for s in range(0, max_sep + 1):
+                for (X, Y) in atom_pairs:
+                    row[f"d_s{s}_{X}_{Y}"] = (_dist(s, X, Y) + 1.7 * ci + 0.05 * i
+                                             if i + s < len(seq) else "")
+            rows.append(row)
+    d = tmp_path / "db"
+    d.mkdir()
+    pd.DataFrame(rows).to_csv(d / "residues.csv", index=False)
+    FragmentIndex.build(d)
+    return str(d)
+
+
+def _backbone_coords(n):
+    """A simple extended CA/CB backbone (nm) for residues 1..n, for energy_at / mutation tests."""
+    return {atom: np.array([0.38 * i, 0.15 * (atom_name == "CB"), 0.0])
+            for i in range(1, n + 1) for atom_name, atom in (("CA", ("CA", i)), ("CB", ("CB", i)))}
+
+
 def test_local_db_self_hit_retrieves_itself(tmp_path):
     from openawsem.memory.retrieval import FragmentDatabase
     db = FragmentDatabase.load(_make_db_dir(tmp_path, {"C1": "AKLVRSTE", "C2": "EDMWFAKL"}))
@@ -474,6 +505,171 @@ def test_energy_at_skips_missing_atoms_and_table():
         "r": [0.4, 0.8], "energy": [1.0, 3.0]}))
     coords = {("CA", 1): np.zeros(3), ("CA", 5): np.array([0.6, 0.0, 0.0])}   # r = 0.6 -> interp 2.0
     assert abs(table.energy_at(coords, k_fm=1.0) - (-2.0)) < 1e-9
+
+
+# --------------------------------------------------------------------------- #
+# soft (score-weighted) memory + fast mutation ΔE
+# --------------------------------------------------------------------------- #
+_SOFT_CHAINS = {"aaaa_A": "AKLVRSTE", "bbbb_A": "AKLVRSTE", "cccc_A": "AKLVKSTE",
+                "dddd_A": "AKLVRSTD", "eeee_A": "ATLVRSTE", "ffff_A": "AKLVRSTQ"}
+
+
+def test_topk_pool_orders_by_score_and_respects_keep(tmp_path):
+    from openawsem.memory.retrieval import FragmentIndex
+    from openawsem.memory.retrieval.blosum import encode_sequence
+    idx = FragmentIndex.load(_make_varied_db_dir(tmp_path, _SOFT_CHAINS))
+    q = encode_sequence("AKLVR")
+    rows, codes, scores = idx.topk_pool(q, 5, 3, seed_word=2)
+    assert len(rows) == 3 and list(scores) == sorted(scores, reverse=True)   # top-3, descending
+    # keep_rows mask drops the excluded rows from the result
+    keep = np.ones(len(idx.ctx), bool)
+    keep[rows[0]] = False
+    rows2, _, _ = idx.topk_pool(q, 5, 3, seed_word=2, keep_rows=keep)
+    assert rows[0] not in set(rows2.tolist())
+
+
+def test_soft_memory_generation(tmp_path):
+    db_dir = _make_varied_db_dir(tmp_path, _SOFT_CHAINS)
+    mem = LocalDB(database=db_dir, fragment_length=5, min_seq_sep=3, max_seq_sep=4, n_mem=4,
+                  weighting="soft", soft_temp=2.0, soft_pool=6).generate("AKLVRSTE")
+    assert isinstance(mem, MemoryWells) and len(mem) > 0
+    assert mem.provenance["method"] == "local_db_soft" and mem.provenance["soft_pool"] == 6
+    assert set(zip(mem["name_i"], mem["name_j"])) == {("CA", "CA"), ("CA", "CB"),
+                                                      ("CB", "CA"), ("CB", "CB")}
+    # each covering window contributes weights summing to n_mem (softmax scaled to depth), so a
+    # residue pair's total is n_mem * (number of overlapping windows that cover it) — the same
+    # multiplicity the hard top-N memory has
+    keys = ["resid_i", "name_i", "resid_j", "name_j"]
+    sums = pd.DataFrame(mem).groupby(keys)["weight"].sum().to_numpy()
+    np.testing.assert_allclose(sums / 4.0, np.round(sums / 4.0), atol=1e-9)
+    # a single-window target removes the multiplicity: each pair's weight sums to exactly n_mem
+    one = LocalDB(database=db_dir, fragment_length=5, min_seq_sep=3, max_seq_sep=4, n_mem=4,
+                  weighting="soft", soft_temp=2.0, soft_pool=6).generate("AKLVR")
+    np.testing.assert_allclose(pd.DataFrame(one).groupby(keys)["weight"].sum().to_numpy(), 4.0, atol=1e-9)
+
+
+def test_soft_memory_skips_glycine_cb(tmp_path):
+    db_dir = _make_varied_db_dir(tmp_path, {"aaaa_A": "AKGVRSTE", "bbbb_A": "AKGVRSTE"})
+    mem = LocalDB(database=db_dir, fragment_length=5, min_seq_sep=3, max_seq_sep=4, n_mem=2,
+                  weighting="soft", soft_pool=4).generate("AKGVRSTE")          # G -> resid 3
+    gly_cb = mem[((mem.name_i == "CB") & (mem.resid_i == 3)) |
+                 ((mem.name_j == "CB") & (mem.resid_j == 3))]
+    assert len(gly_cb) == 0
+
+
+def test_soft_requires_index(tmp_path):
+    db_dir = _make_db_dir(tmp_path, {"C1": "AKLVRSTE"})                         # no index built
+    ld = LocalDB(database=db_dir, fragment_length=5, weighting="soft")
+    with pytest.raises(TypeError, match="FragmentIndex"):
+        ld.generate("AKLVRSTE")
+
+
+def test_local_db_invalid_weighting(tmp_path):
+    with pytest.raises(ValueError, match="weighting"):
+        LocalDB(database="x", weighting="medium")
+
+
+def _soft_ldb(tmp_path, **kw):
+    db_dir = _make_varied_db_dir(tmp_path, _SOFT_CHAINS)
+    p = dict(fragment_length=5, min_seq_sep=3, max_seq_sep=4, n_mem=4, weighting="soft",
+             soft_temp=2.0, soft_pool=6)
+    p.update(kw)
+    ld = LocalDB(database=db_dir, **p)
+    _ = ld.db
+    return ld
+
+
+def test_mutation_energy_faithful_matches_regenerated_memory(tmp_path):
+    """The faithful engine's ΔE equals regenerating the soft memory for the mutant and diffing
+    energy_at — the public-API ground truth (re-search per mutant)."""
+    seq = "AKLVRSTE"
+    coords = _backbone_coords(len(seq))
+    ld = _soft_ldb(tmp_path)
+    eng = ld.mutation_engine(seq, coords, method="faithful")
+    e_wt = ld.generate(seq).energy_at(coords)
+    for pos, aa in [(2, "W"), (5, "K"), (8, "D"), (3, "R")]:
+        mut_seq = seq[:pos - 1] + aa + seq[pos:]
+        ref = ld.generate(mut_seq).energy_at(coords) - e_wt
+        assert abs(eng.dE(pos, aa) - ref) < 1e-9
+        assert abs(ld.mutation_energy(seq, coords, pos, aa, method="faithful") - eng.dE(pos, aa)) < 1e-9
+
+
+def test_mutation_energy_anchored_equals_faithful_with_full_pool(tmp_path):
+    """With a pool larger than the database, the anchored pool contains every fragment, so the
+    fixed-pool reweight equals the re-searched mutant memory — validating the anchored energy
+    machinery against the public-API ground truth."""
+    seq = "AKLVRSTE"
+    coords = _backbone_coords(len(seq))
+    ld = _soft_ldb(tmp_path, soft_pool=10 ** 6)
+    eng = ld.mutation_engine(seq, coords, method="anchored")
+    e_wt = ld.generate(seq).energy_at(coords)
+    for pos, aa in [(2, "W"), (5, "K"), (8, "D")]:
+        mut_seq = seq[:pos - 1] + aa + seq[pos:]
+        ref = ld.generate(mut_seq).energy_at(coords) - e_wt
+        assert abs(eng.dE(pos, aa) - ref) < 1e-9
+
+
+def test_mutation_energy_noop_is_zero_and_commit_walks(tmp_path):
+    seq = "AKLVRSTE"
+    coords = _backbone_coords(len(seq))
+    ld = _soft_ldb(tmp_path)
+    for method in ("anchored", "faithful"):
+        eng = ld.mutation_engine(seq, coords, method=method)
+        assert eng.dE(4, seq[3]) == 0.0                                  # no-op mutation
+        # commit a mutation, then a second ΔE equals a fresh engine on the mutated sequence
+        eng.commit(2, "W")
+        walked = eng.dE(5, "K")
+        fresh = ld.mutation_engine("AWLVRSTE", coords, method=method).dE(5, "K")
+        assert abs(walked - fresh) < 1e-9
+
+
+def test_mutation_engine_requires_index(tmp_path):
+    db_dir = _make_db_dir(tmp_path, {"C1": "AKLVRSTE"})                         # no index
+    ld = LocalDB(database=db_dir, fragment_length=5, weighting="soft")
+    with pytest.raises(TypeError, match="FragmentIndex"):                       # default method 'fulldb'
+        ld.mutation_engine("AKLVRSTE", _backbone_coords(8))
+    with pytest.raises(TypeError, match="FragmentIndex"):
+        ld.mutation_engine("AKLVRSTE", _backbone_coords(8), method="anchored")
+
+
+def test_mutation_energy_fulldb_equals_regenerated_full_memory(tmp_path):
+    """fulldb evaluates the WHOLE database; with a full-DB memory (pool ≥ N) it equals regenerating the
+    mutant memory and diffing energy_at — the exact public-API ground truth."""
+    seq = "AKLVRSTE"
+    coords = _backbone_coords(len(seq))
+    ld = _soft_ldb(tmp_path, soft_pool=10 ** 6)                                 # generate() = full DB
+    eng = ld.mutation_engine(seq, coords, method="fulldb", cache_commit=False)
+    e_wt = ld.generate(seq).energy_at(coords)
+    for pos, aa in [(2, "W"), (5, "K"), (8, "D"), (3, "G")]:                    # incl to-G
+        ref = ld.generate(seq[:pos - 1] + aa + seq[pos:]).energy_at(coords) - e_wt
+        assert abs(eng.dE(pos, aa) - ref) < 1e-4                                # fulldb uses float32 Gaussians
+
+
+def test_mutation_energy_fulldb_exact_vs_naive_and_gly(tmp_path):
+    """fulldb's O(alphabet·L) dE equals its brute O(N) re-softmax oracle, incl. to-G/from-G and no-op."""
+    from openawsem.memory.mutation import FullDBMutationEnergy
+    seq = "AKGVRSTE"                                                            # glycine at position 3
+    coords = _backbone_coords(len(seq))
+    ld = _soft_ldb(tmp_path)
+    eng = FullDBMutationEnergy(ld, seq, coords, keep_naive=True, cache_commit=True)
+    err = max(abs(eng.dE(p, a) - eng.dE_naive(p, a))
+              for p in (1, 2, 3, 5, 8) for a in ("A", "G", "W", "X"))
+    assert err < 1e-4
+    assert abs(eng.dE(4, seq[3])) < 1e-6                                        # no-op = 0
+
+
+def test_mutation_energy_fulldb_cached_commit_equals_slow(tmp_path):
+    """The fast cached-Gaussian commit (walk) gives the same state as a full recompute, incl. GLY flips."""
+    seq = "AKLVRSTE"
+    coords = _backbone_coords(len(seq))
+    ld = _soft_ldb(tmp_path)
+    fast = ld.mutation_engine(seq, coords, method="fulldb", cache_commit=True)
+    slow = ld.mutation_engine(seq, coords, method="fulldb", cache_commit=False)
+    for pos, aa in [(5, "G"), (3, "W"), (5, "A"), (8, "G"), (2, "K")]:          # to-G and from-G
+        assert abs(fast.dE(pos, aa) - slow.dE(pos, aa)) < 1e-9
+        fast.commit(pos, aa)
+        slow.commit(pos, aa)
+        assert max(abs(fast.E_wt[s] - slow.E_wt[s]) for s in range(len(fast.E_wt))) < 1e-9
 
 
 # --------------------------------------------------------------------------- #

@@ -16,6 +16,8 @@ import numpy as np
 import pandas as pd
 
 from openawsem.memory.memory import MemoryWells, WELLS_COLUMNS
+from openawsem.memory.retrieval.blosum import encode_sequence
+from openawsem.memory.retrieval.index import ATOM_PAIRS
 from openawsem.memory.generators import homology
 from openawsem.memory.generators.base import FragmentBackend, Registry
 
@@ -35,6 +37,15 @@ class LocalDB(FragmentBackend):
         ``local_blast``: top-20 hits of 9-mers).
     min_seq_sep, max_seq_sep, well_width, weight:
         Same well parameters as ``local_blast`` (``sigma = well_width*sep**0.15``).
+    weighting, soft_temp, soft_pool, soft_seed_word:
+        ``"hard"`` (default) keeps the top ``n_mem`` fragments per window, each weighted equally.
+        ``"soft"`` instead score-weights a wider candidate pool: every well of the top
+        ``soft_pool`` candidates contributes ``softmax(score/soft_temp)`` (summing to ``n_mem`` so
+        the depth matches the hard memory).  ``soft_temp`` controls peakedness: the default ``2.0``
+        folds 1r69 to ``Q=0.555`` (the best of hard 0.517, conventional 0.515, and the softer temp=3
+        0.497) and keeps the softmax narrow enough that the mutation-ΔE pool stays small.  The soft
+        memory is tie-free, which makes the mutation-ΔE engine (:meth:`mutation_engine`) well defined.
+        ``soft`` requires a :class:`FragmentIndex` (the pointwise distance store).
     brain_damage, cutoff_identical, homolog_evalue, homolog_database, blast_exe, num_threads,
     homolog_oversample:
         Homolog handling, identical flags/semantics to ``local_blast`` (0 all | 1 exclude
@@ -49,7 +60,8 @@ class LocalDB(FragmentBackend):
     _db_cache: dict = {}
 
     def __init__(self, database, *, n_mem=20, fragment_length=9, min_seq_sep=3,
-                 max_seq_sep=9, well_width=0.1, weight=1.0, brain_damage=0,
+                 max_seq_sep=9, well_width=0.1, weight=1.0, weighting="hard", soft_temp=2.0,
+                 soft_pool=80, soft_seed_word=2, brain_damage=0,
                  cutoff_identical=90, homolog_evalue=0.005, homolog_database=None,
                  blast_exe="psiblast", num_threads=1, homolog_oversample=10, seeded=True):
         self.database = str(database)
@@ -60,6 +72,12 @@ class LocalDB(FragmentBackend):
         self.max_seq_sep = int(max_seq_sep)
         self.well_width = float(well_width)
         self.weight = float(weight)
+        if weighting not in ("hard", "soft"):
+            raise ValueError(f"weighting must be 'hard' or 'soft', got {weighting!r}")
+        self.weighting = weighting
+        self.soft_temp = float(soft_temp)
+        self.soft_pool = int(soft_pool)
+        self.soft_seed_word = int(soft_seed_word)
         self.brain_damage = brain_damage
         self.cutoff_identical = cutoff_identical
         self.homolog_evalue = homolog_evalue
@@ -126,6 +144,8 @@ class LocalDB(FragmentBackend):
         return n_hits
 
     def generate(self, sequence) -> MemoryWells:
+        if self.weighting == "soft":
+            return self._generate_soft(sequence)
         L = self.fragment_length
         homologs = self._homologs(sequence)
         cols: dict = {c: [] for c in WELLS_COLUMNS}
@@ -146,6 +166,109 @@ class LocalDB(FragmentBackend):
                                   "brain_damage": self.brain_damage,
                                   "n_windows": int(n_windows), "n_hits": int(n_hits)})
         return memory
+
+    def _keep_rows(self, sequence):
+        """Boolean mask over index rows for brain_damage (drop homolog/self PDBs), or ``None``."""
+        if not self.brain_damage:
+            return None
+        keep = homology.keep_predicate(self._homologs(sequence), brain_damage=self.brain_damage,
+                                       cutoff_identical=self.cutoff_identical)
+        if keep is None:
+            return None
+        idx = self.db
+        chain_keep = np.array([keep(str(name).split("_")[0]) for name in idx.chain_names])
+        return chain_keep[np.asarray(idx.chain_code)]
+
+    def _generate_soft(self, sequence) -> MemoryWells:
+        """Score-weighted memory: per window, ``softmax(score/soft_temp)`` over the top
+        ``soft_pool`` candidates (scaled to ``n_mem``), wells gathered pointwise from the index."""
+        from openawsem.memory.retrieval import FragmentIndex
+        idx = self.db
+        if not isinstance(idx, FragmentIndex):
+            raise TypeError("weighting='soft' needs a FragmentIndex; build one with "
+                            "`python -m openawsem.memory.retrieval.index <database>`")
+        L = self.fragment_length
+        apidx = {p: ATOM_PAIRS.index(p) for p in self._ATOM_PAIRS}
+        keep_rows = self._keep_rows(sequence)
+        cols: dict = {c: [] for c in WELLS_COLUMNS}
+        n_windows = 0
+        base = 0
+        for record in self._as_records(sequence):
+            n = len(record)
+            for start in range(n - L + 1):
+                q = encode_sequence(record[start:start + L])
+                rows, _, scores = idx.topk_pool(q, L, self.soft_pool,
+                                                seed_word=self.soft_seed_word, keep_rows=keep_rows)
+                w = np.exp((scores - scores.max()) / self.soft_temp)
+                w = self.n_mem * w / w.sum()
+                self._accumulate_soft(cols, idx, apidx, record, start, base, rows, w)
+                n_windows += 1
+            base += n
+
+        frame = pd.DataFrame(cols)
+        memory = MemoryWells(frame) if len(frame) else MemoryWells.empty()
+        memory.attrs["params"] = {"min_seq_sep": self.min_seq_sep, "max_seq_sep": self.max_seq_sep,
+                                  "well_width": self.well_width, "units": "nm", "cb_policy": "legacy"}
+        memory.provenance.update({"method": "local_db_soft", "database": self.database,
+                                  "brain_damage": self.brain_damage, "soft_temp": self.soft_temp,
+                                  "soft_pool": self.soft_pool, "n_windows": int(n_windows)})
+        return memory
+
+    def _accumulate_soft(self, cols, idx, apidx, record, start, base, rows, weights):
+        """Append the score-weighted wells of one window (candidate ``rows`` with ``weights``)."""
+        for a in range(self.fragment_length):
+            for b in range(a + 1, self.fragment_length):
+                sep = b - a
+                if not (self.min_seq_sep <= sep <= self.max_seq_sep) or sep not in idx._sep_index:
+                    continue
+                si, sigma = idx._sep_index[sep], self.well_width * sep ** 0.15
+                resid_i, resid_j = base + start + a + 1, base + start + b + 1
+                gly_i, gly_j = record[start + a] == "G", record[start + b] == "G"
+                for name_i, name_j in self._ATOM_PAIRS:
+                    if (name_i == "CB" and gly_i) or (name_j == "CB" and gly_j):
+                        continue
+                    d = idx.dist[rows + a, si, apidx[(name_i, name_j)]] / 10.0
+                    ok = ~np.isnan(d)
+                    m = int(ok.sum())
+                    if not m:
+                        continue
+                    cols["resid_i"].extend([resid_i] * m); cols["name_i"].extend([name_i] * m)
+                    cols["resid_j"].extend([resid_j] * m); cols["name_j"].extend([name_j] * m)
+                    cols["r_mean"].extend(d[ok].tolist()); cols["sigma"].extend([sigma] * m)
+                    cols["weight"].extend(weights[ok].tolist())
+
+    def mutation_engine(self, sequence, structure, *, method="fulldb", k_fm=0.04184,
+                        cache_commit=True, verbose=False):
+        """A reusable soft-memory mutation-ΔE engine on a fixed ``structure``: ``engine.dE(position,
+        new_aa)`` for a trial, ``engine.commit(position, new_aa)`` to advance a Monte-Carlo walk.
+
+        method:
+          ``'fulldb'`` (default, EXACT) -- evaluates the whole database.  O(N) precompute (needs a
+            :class:`FragmentIndex`; ~minutes and GBs of RAM on a large DB), then ~tens of thousands of
+            exact trial-ΔE/s; ``commit`` advances a walk in O(N) (~seconds/accept).  The faithful-MC
+            choice.  A long MC is commit-bound; a smaller curated DB cuts the precompute/commit linearly.
+          ``'anchored'`` (fast, APPROXIMATE) -- a fixed top-``soft_pool`` pool, no precompute, but it
+            cannot see fragments outside the pool, so it distorts the marginal moves of a walk.  A fallback
+            when the exact precompute/commit is unaffordable, not a faithful sampler.
+          ``'faithful'`` (exact, slow, no precompute) -- re-search the mutant's windows; superseded by
+            ``'fulldb'``.
+        ``cache_commit``/``verbose`` apply to ``'fulldb'`` only (``cache_commit=False`` skips the walk
+        Gaussian cache for a scan-only run; ``verbose`` logs precompute progress)."""
+        from openawsem.memory.mutation import MutationEnergy, FullDBMutationEnergy
+        if method == "fulldb":
+            return FullDBMutationEnergy(self, sequence, structure, k_fm=k_fm,
+                                        cache_commit=cache_commit, verbose=verbose)
+        if method in ("anchored", "faithful"):
+            return MutationEnergy(self, sequence, structure, method=method, k_fm=k_fm)
+        raise ValueError(f"method must be 'fulldb', 'anchored', or 'faithful', got {method!r}")
+
+    def mutation_energy(self, sequence, structure, position, new_aa, *, method="faithful",
+                        k_fm=0.04184) -> float:
+        """One-shot soft mutation ΔE on a fixed ``structure``.  Defaults to ``method='faithful'`` (exact,
+        no precompute -- best for a single mutation).  For many mutations or a walk use
+        :meth:`mutation_engine` (``method='fulldb'``) to amortize the precompute; ``'anchored'`` is the
+        fast-but-approximate fallback."""
+        return self.mutation_engine(sequence, structure, method=method, k_fm=k_fm).dE(position, new_aa)
 
     def _accumulate(self, cols, frag, window, start, base, hit_start) -> bool:
         """Append wells for one retrieved fragment; return True if it contributed any.
