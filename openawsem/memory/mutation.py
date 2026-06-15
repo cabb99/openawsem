@@ -53,17 +53,30 @@ class MutationEnergy:
     ``"faithful"`` (re-search, exact to the regenerated mutant memory)."""
 
     def __init__(self, ldb, sequence, structure, *, method="anchored", k_fm=0.04184):
+        if method not in ("anchored", "faithful"):
+            raise ValueError(f"method must be 'anchored' or 'faithful', got {method!r}")
+        self._init_common(ldb, sequence, structure, k_fm)
+        self.method = method
+        if method == "anchored":
+            self.pools = [self._anchored_pool(s) for s in range(len(self.terms))]
+            self.E_wt = [self._anchored_energy(s, self._window(self.seq, s))
+                         for s in range(len(self.terms))]
+        else:
+            self.E_wt = [self._faithful_energy(s, self._window(self.seq, s))
+                         for s in range(len(self.terms))]
+
+    # ----- geometry: structure pair distances + masks, once -------------- #
+    def _init_common(self, ldb, sequence, structure, k_fm):
+        """Engine-wide setup shared by every method: copy the ``ldb`` parameters and build the fixed
+        per-window structure geometry (``self.terms``)."""
         if not isinstance(sequence, str):
             raise ValueError("MutationEnergy supports a single chain (a sequence string)")
         idx = ldb.db
         if not isinstance(idx, FragmentIndex):
             raise TypeError("soft mutation ΔE needs a FragmentIndex; build one with "
                             "`python -m openawsem.memory.retrieval.index <database>`")
-        if method not in ("anchored", "faithful"):
-            raise ValueError(f"method must be 'anchored' or 'faithful', got {method!r}")
         self.idx = idx
         self.seq = sequence
-        self.method = method
         self.k_fm = float(k_fm)
         self.L = ldb.fragment_length
         self.minsep, self.maxsep = ldb.min_seq_sep, ldb.max_seq_sep
@@ -74,18 +87,8 @@ class MutationEnergy:
         self.seed_word = int(ldb.soft_seed_word)
         self.sep_index = idx._sep_index
         self.apidx = {p: ATOM_PAIRS.index(p) for p in _CACB}
-
         coords = FragmentMemory._structure_coords(structure)
         self.terms = [self._window_terms(s, coords) for s in range(len(sequence) - self.L + 1)]
-        if method == "anchored":
-            self.pools = [self._anchored_pool(s) for s in range(len(self.terms))]
-            self.E_wt = [self._anchored_energy(s, self._window(self.seq, s))
-                         for s in range(len(self.terms))]
-        else:
-            self.E_wt = [self._faithful_energy(s, self._window(self.seq, s))
-                         for s in range(len(self.terms))]
-
-    # ----- geometry: structure pair distances + masks, once -------------- #
     def _window(self, seq, s):
         return seq[s:s + self.L]
 
@@ -115,8 +118,9 @@ class MutationEnergy:
                 "NEEDB": np.array(NEEDB, bool)}
 
     def _gaussians(self, s, rows):
-        """``G[candidate, term] = exp(-(R - d)^2 / 2σ^2)`` for window ``s``'s structure terms,
-        with missing fragment distances (NaN) contributing zero."""
+        """``G[candidate, term] = exp(-(R - d)^2 / 2σ^2)`` (float64) for window ``s``'s structure terms,
+        with missing fragment distances (NaN) contributing zero.  ``FullDBMutationEnergy`` uses its own
+        float32 variant for the whole-database gather."""
         t = self.terms[s]
         if len(t["A"]) == 0 or len(rows) == 0:
             return np.zeros((len(rows), len(t["A"])))
@@ -166,18 +170,24 @@ class MutationEnergy:
         win = self._window(self.seq, s)
         return off, win[:off] + new_aa + win[off + 1:]
 
+    def _apply_reweight(self, s, off, new_code, old_code):
+        """Add the one-position BLOSUM score delta into pool ``s``'s stored scores; return the originals
+        (so a non-committing ``dE`` can restore them)."""
+        codes, scores, _ = self.pools[s]
+        col = codes[:, off]
+        self.pools[s][1] = scores + (SCORE_TABLE[new_code, col] - SCORE_TABLE[old_code, col])
+        return scores
+
     def dE(self, position, new_aa) -> float:
         """ΔE of mutating residue ``position`` (1-based) to ``new_aa`` against the current
         sequence.  Zero for a no-op (same residue) or a position outside every well's window."""
         kk, windows = self._covering_windows(position)
+        new_code, old_code = int(encode_sequence(new_aa)[0]), int(encode_sequence(self.seq[kk])[0])
         de = 0.0
         for s in windows:
             off, mut = self._mutant_window(s, kk, new_aa)
             if self.method == "anchored":
-                codes, scores, G = self.pools[s]
-                new_code, old_code = int(encode_sequence(new_aa)[0]), int(encode_sequence(self.seq[kk])[0])
-                col = codes[:, off]
-                self.pools[s][1] = scores + (SCORE_TABLE[new_code, col] - SCORE_TABLE[old_code, col])
+                scores = self._apply_reweight(s, off, new_code, old_code)
                 de += self._anchored_energy(s, mut) - self.E_wt[s]
                 self.pools[s][1] = scores                 # restore (single-mutation eval)
             else:
@@ -187,13 +197,10 @@ class MutationEnergy:
     def commit(self, position, new_aa) -> None:
         """Apply a mutation permanently so subsequent ``dE`` calls are relative to it."""
         kk, windows = self._covering_windows(position)
-        for s in windows:
-            off, mut = self._mutant_window(s, kk, new_aa)
-            if self.method == "anchored":
-                codes, scores, G = self.pools[s]
-                new_code, old_code = int(encode_sequence(new_aa)[0]), int(encode_sequence(self.seq[kk])[0])
-                col = codes[:, off]
-                self.pools[s][1] = scores + (SCORE_TABLE[new_code, col] - SCORE_TABLE[old_code, col])
+        new_code, old_code = int(encode_sequence(new_aa)[0]), int(encode_sequence(self.seq[kk])[0])
+        if self.method == "anchored":
+            for s in windows:
+                self._apply_reweight(s, kk - s, new_code, old_code)
         self.seq = self.seq[:kk] + new_aa + self.seq[kk + 1:]
         for s in windows:
             self.E_wt[s] = (self._anchored_energy(s, self._window(self.seq, s)) if self.method == "anchored"
@@ -210,46 +217,25 @@ class FullDBMutationEnergy(MutationEnergy):
     then O(alphabet*L); ``commit`` re-mixes the weights and rebuilds the tables in O(N) (with the
     structure-fixed Gaussians cached, so no memmap re-gather)."""
 
-    def __init__(self, ldb, sequence, structure, *, k_fm=0.04184, cache_commit=True,
-                 keep_naive=False, verbose=False):
-        if not isinstance(sequence, str):
-            raise ValueError("FullDBMutationEnergy supports a single chain (a sequence string)")
-        idx = ldb.db
-        if not isinstance(idx, FragmentIndex):
-            raise TypeError("fulldb mutation ΔE needs a FragmentIndex; build one with "
-                            "`python -m openawsem.memory.retrieval.index <database>`")
-        self.idx = idx
-        self.seq = sequence
+    def __init__(self, ldb, sequence, structure, *, k_fm=0.04184, cache_commit=True):
+        self._init_common(ldb, sequence, structure, k_fm)
         self.method = "fulldb"
-        self.k_fm = float(k_fm)
-        self.L = ldb.fragment_length
-        self.minsep, self.maxsep = ldb.min_seq_sep, ldb.max_seq_sep
-        self.well_width = ldb.well_width
-        self.scale = ldb.n_mem
-        self.temp = float(ldb.soft_temp)
-        self.seed_word = int(ldb.soft_seed_word)
-        self.sep_index = idx._sep_index
-        self.apidx = {p: ATOM_PAIRS.index(p) for p in _CACB}
         self.cache_commit = bool(cache_commit)
-        self.keep_naive = bool(keep_naive)
-
-        coords = FragmentMemory._structure_coords(structure)
-        self.valid_rows = idx._encoded_for_length(self.L)[0]
-        self.codes = np.asarray(idx.ctx[self.valid_rows, :self.L])         # (N, L) int8
-        self.terms = [self._window_terms(s, coords) for s in range(len(sequence) - self.L + 1)]
+        self.valid_rows = self.idx._encoded_for_length(self.L)[0]
+        self.codes = np.asarray(self.idx.ctx[self.valid_rows, :self.L])     # (N, L) int8
         nwin = len(self.terms)
         logger.info("fulldb precompute over %d fragments x %d windows ...", len(self.valid_rows), nwin)
         self.W = []
         for s in range(nwin):
             self.W.append(self._precompute_window(s))
-            if verbose and (s % 8 == 0 or s == nwin - 1):
-                logger.info("  fulldb precompute window %d/%d", s + 1, nwin)
+            if s % 8 == 0 or s == nwin - 1:
+                logger.debug("  fulldb precompute window %d/%d", s + 1, nwin)
         self.E_wt = [self._wt_energy(s) for s in range(nwin)]
 
     # ----- per-window precompute (structure-fixed Gaussians + per-aa tables) ----- #
     def _pool_gaussians_f32(self, s, rows):
         """(M, T) float32 Gaussians of fragments ``rows`` for window ``s``'s terms; NaN distances -> 0.
-        float32 to halve the exp cost over the whole database."""
+        float32 (vs the base float64 ``_gaussians``) to halve the exp cost over the whole database."""
         t = self.terms[s]
         d = (self.idx.dist[rows[:, None] + t["A"][None, :],
                            t["SEPI"][None, :], t["API"][None, :]] * np.float32(0.1))   # (M, T) nm
@@ -307,11 +293,9 @@ class FullDBMutationEnergy(MutationEnergy):
         score, GM = pool["score"], pool["GM"]
         m = float(score.max()) if len(score) else 0.0
         e = np.exp((score - m) / self.temp)
-        rec = {"m": m, "e_sum": float(e.sum()), "tables": self._tables_from(self.codes, e, GM)}
-        if self.keep_naive or self.cache_commit:           # score: dE_naive + incremental commit
-            rec["score"] = score
-        if self.cache_commit:                              # GM: structure-fixed, reused on fast commit
-            rec["GM"] = GM
+        rec = {"e_sum": float(e.sum()), "tables": self._tables_from(self.codes, e, GM)}
+        if self.cache_commit:                              # walk: keep scores (incremental reweight) +
+            rec["score"], rec["GM"] = score, GM            # the structure-fixed Gaussians (no re-gather)
         return rec
 
     def _wt_energy(self, s):
@@ -342,9 +326,10 @@ class FullDBMutationEnergy(MutationEnergy):
         return de
 
     def dE_naive(self, position, new_aa) -> float:
-        """Brute O(N) reference (re-softmax over all fragments); test oracle for ``dE``."""
-        if not self.keep_naive:
-            raise RuntimeError("build with keep_naive=True to use dE_naive")
+        """Brute O(N) reference (re-softmax over all fragments); test oracle for ``dE``.  Needs the
+        per-window scores, i.e. ``cache_commit=True``."""
+        if not self.cache_commit:
+            raise RuntimeError("dE_naive needs cache_commit=True (per-window scores are not retained)")
         kk, windows = self._covering_windows(position)
         new_code, old_code = int(encode_sequence(new_aa)[0]), int(encode_sequence(self.seq[kk])[0])
         de = 0.0
@@ -383,9 +368,8 @@ class FullDBMutationEnergy(MutationEnergy):
             if gly_flip:
                 w["GM"] = self._build_pool(s, self.valid_rows, self.codes,
                                            self._window(self.seq, s))["GM"]
-            m = float(w["score"].max())
-            e = np.exp((w["score"] - m) / self.temp)
-            w["m"], w["e_sum"] = m, float(e.sum())
+            e = np.exp((w["score"] - w["score"].max()) / self.temp)
+            w["e_sum"] = float(e.sum())
             w["tables"] = self._tables_from(self.codes, e, w["GM"])
         for s in windows:
             self.E_wt[s] = self._wt_energy(s)

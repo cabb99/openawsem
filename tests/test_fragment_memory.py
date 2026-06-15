@@ -651,7 +651,7 @@ def test_mutation_energy_fulldb_exact_vs_naive_and_gly(tmp_path):
     seq = "AKGVRSTE"                                                            # glycine at position 3
     coords = _backbone_coords(len(seq))
     ld = _soft_ldb(tmp_path)
-    eng = FullDBMutationEnergy(ld, seq, coords, keep_naive=True, cache_commit=True)
+    eng = FullDBMutationEnergy(ld, seq, coords, cache_commit=True)              # cache_commit enables dE_naive
     err = max(abs(eng.dE(p, a) - eng.dE_naive(p, a))
               for p in (1, 2, 3, 5, 8) for a in ("A", "G", "W", "X"))
     assert err < 1e-4

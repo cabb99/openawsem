@@ -238,7 +238,7 @@ class LocalDB(FragmentBackend):
                     cols["weight"].extend(weights[ok].tolist())
 
     def mutation_engine(self, sequence, structure, *, method="fulldb", k_fm=0.04184,
-                        cache_commit=True, verbose=False):
+                        cache_commit=True):
         """A reusable soft-memory mutation-ΔE engine on a fixed ``structure``: ``engine.dE(position,
         new_aa)`` for a trial, ``engine.commit(position, new_aa)`` to advance a Monte-Carlo walk.
 
@@ -252,12 +252,11 @@ class LocalDB(FragmentBackend):
             when the exact precompute/commit is unaffordable, not a faithful sampler.
           ``'faithful'`` (exact, slow, no precompute) -- re-search the mutant's windows; superseded by
             ``'fulldb'``.
-        ``cache_commit``/``verbose`` apply to ``'fulldb'`` only (``cache_commit=False`` skips the walk
-        Gaussian cache for a scan-only run; ``verbose`` logs precompute progress)."""
+        ``cache_commit`` applies to ``'fulldb'`` only (``cache_commit=False`` skips the walk Gaussian
+        cache for a scan-only run)."""
         from openawsem.memory.mutation import MutationEnergy, FullDBMutationEnergy
         if method == "fulldb":
-            return FullDBMutationEnergy(self, sequence, structure, k_fm=k_fm,
-                                        cache_commit=cache_commit, verbose=verbose)
+            return FullDBMutationEnergy(self, sequence, structure, k_fm=k_fm, cache_commit=cache_commit)
         if method in ("anchored", "faithful"):
             return MutationEnergy(self, sequence, structure, method=method, k_fm=k_fm)
         raise ValueError(f"method must be 'fulldb', 'anchored', or 'faithful', got {method!r}")
