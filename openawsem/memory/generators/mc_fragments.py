@@ -27,13 +27,17 @@ Because the new weight of fragment ``f`` is just the old weight multiplied by a 
 Then:  ΔE[w] = scale * (g @ S1[w,off]) / (g @ S0[w,off]) − E_wt[w]
 
 ``dE`` is O(ALPHA × L) — essentially free.  ``commit`` rebuilds S0/S1 for the affected windows,
-which is O(N_db × L) (a softmax + bincount over every database fragment).
+which is O(N_db × L) (a softmax + bincount over every database fragment) and is the Monte-Carlo
+throughput ceiling.  ``commit_topk=K`` rebuilds over only the K highest-weight fragments per window
+(re-selected each commit), shrinking that cost; at low ``soft_temp`` the weight concentrates so a
+small K is near-exact and the walk reaches ~thousands of moves/s.
 
 GPU acceleration (``device='cuda'``).  The two costs that scale with the database — the one-time
 ``E_table`` precompute and the per-accepted-move ``commit`` rebuild — run on the GPU, while the
 tiny ``dE`` (O(ALPHA × L), database-independent) stays on the CPU where kernel-launch latency
 would otherwise dominate.  See ``docs/mc_fragments.md`` for the full walk-through (what "rebuild
-the affected windows" means and why it is the expensive step).
+the affected windows" means, why it is the expensive step, and the ``commit_topk`` / ``soft_temp``
+fast-MC recipe).
 """
 from __future__ import annotations
 
@@ -80,11 +84,22 @@ class MCFragments(FragmentBackend):
     gpu_chunk:
         Number of DB fragments per chunk when building ``E_table`` on the GPU.  Caps the
         transient ``(chunk, n_terms)`` index tensor; ~400k keeps it near 270 MB.
+    commit_topk:
+        If set, ``commit`` rebuilds the S0/S1 tables over only the ``commit_topk`` highest-weight
+        fragments per window (re-selected each commit, dynamic), instead of all ``N_db``.  This
+        shrinks the commit scatter and lifts Monte-Carlo throughput.  It is an approximation of
+        the full soft energy controlled by ``commit_topk`` and ``soft_temp``: at low ``soft_temp``
+        the softmax weight concentrates, so a small ``commit_topk`` (~10-50k) is near-exact
+        (recommended ``soft_temp≈1.0`` + ``commit_topk≈10-50k`` → ~2k moves/s, dE≈full-DB and
+        better folding); at the default ``soft_temp=2.0`` the weight has a fat tail, so a larger
+        ``commit_topk`` (~200k) is needed to stay within ~kT.  ``None`` (default) is the exact
+        full-DB rebuild.
     """
 
     def __init__(self, database, *, fragment_length=9, well_width=0.1, soft_temp=2.0,
                  n_mem=20, min_seq_sep=3, max_seq_sep=9, k_fm=0.04184, chunk_size=50_000,
-                 soft_pool=80, soft_seed_word=2, device=None, gpu_chunk=400_000):
+                 soft_pool=80, soft_seed_word=2, device=None, gpu_chunk=400_000,
+                 commit_topk=None):
         self.database = str(database)
         self.fragment_length = int(fragment_length)
         self.well_width = float(well_width)
@@ -98,6 +113,7 @@ class MCFragments(FragmentBackend):
         self.soft_seed_word = int(soft_seed_word)
         self.device = device
         self.gpu_chunk = int(gpu_chunk)
+        self.commit_topk = None if commit_topk is None else int(commit_topk)
         self._db_cache: dict = {}
 
     @property
@@ -174,6 +190,7 @@ class MCMutationEngine:
         self.chunk_size = gen.chunk_size
         self.device = device
         self.gpu_chunk = gen.gpu_chunk
+        self.commit_topk = gen.commit_topk
 
         coords = FragmentMemory._structure_coords(structure)
         n = len(sequence)
@@ -307,8 +324,12 @@ class MCMutationEngine:
         wts = self._softmax_weights_for(s)        # (N_frags,) float64
         E_w = self.E_table[s].astype(np.float64)  # (N_frags,) float64 view of float32 table
         wE = wts * E_w                             # (N_frags,) float64
+        ctx_T = self._ctx_T
+        if self.commit_topk is not None and self.commit_topk < wts.shape[0]:
+            top = np.argpartition(wts, -self.commit_topk)[-self.commit_topk:]
+            wts, wE, ctx_T = wts[top], wE[top], ctx_T[:, top]
         for off in range(self.L):
-            aa = self._ctx_T[off]                  # (N_frags,) int labels
+            aa = ctx_T[off]                        # (M,) int labels
             self.S0[s, off] = np.bincount(aa, weights=wts, minlength=ALPHA)[:ALPHA]
             self.S1[s, off] = np.bincount(aa, weights=wE,  minlength=ALPHA)[:ALPHA]
         # E_wt = Σ_f w_f·E_f = Σ_a S1[s,0,a]; reuse S1 instead of a second O(N_db) dot.
@@ -456,12 +477,17 @@ class _TorchBackend:
         w = (scale / e.sum()) * e                    # (N,) float64 softmax weights
         Es = self.E[s].double()                       # (N,) structural energies
         wE = w * Es
+        ctx = self.ctx
+        topk = self.eng.commit_topk
+        if topk is not None and topk < w.shape[0]:
+            idx = torch.topk(w, topk, sorted=False).indices   # highest-weight fragments
+            w, wE, ctx = w[idx], wE[idx], self.ctx[:, idx]
         # One scatter over all L offsets at once: ``expand`` is a zero-copy view, so w is read
         # through cache instead of re-streamed per offset (fewer launches, ~17% faster rebin).
         S0 = torch.zeros((L, ALPHA), device=dev, dtype=torch.float64)
         S1 = torch.zeros((L, ALPHA), device=dev, dtype=torch.float64)
-        S0.scatter_add_(1, self.ctx, w.unsqueeze(0).expand(L, -1))
-        S1.scatter_add_(1, self.ctx, wE.unsqueeze(0).expand(L, -1))
+        S0.scatter_add_(1, ctx, w.unsqueeze(0).expand(L, -1))
+        S1.scatter_add_(1, ctx, wE.unsqueeze(0).expand(L, -1))
         E_wt = float(S1[0].sum())                     # = Σ_f w_f·E_f, reuse S1 (no extra dot)
         return (S0.cpu().numpy(), S1.cpu().numpy(), E_wt)
 

@@ -248,25 +248,54 @@ negligible, but it is the one place the energy is not exact.
 
 ---
 
-## 8. Usage
+## 8. Fast Monte-Carlo: the `commit_topk` knob
+
+`commit` over the full database is the throughput ceiling (~40-100 moves/s; the O(N_db) histogram
+is ~92% of GPU commit time). The fix that survived testing: on commit, rebuild S0/S1 over only the
+**top-K fragments by weight**, re-selected each commit via `torch.topk` (dynamic — not a fixed
+pool, so no drift). `dE` is unchanged (~40µs); only the commit scatter shrinks from N_db to K.
+
+This is an approximation of the full soft energy whose accuracy is governed by `commit_topk` **and**
+`soft_temp`:
+
+| soft_temp | K for dE≈full-DB | moves/s | folds (1r69 Q) |
+|-----------|------------------|--------:|----------------|
+| 2.0 (default) | ~200k (fat tail) | ~640 | 0.555 |
+| **1.0** | **~10-50k** | **~2400** | **0.754** |
+
+At `soft_temp=2.0` the softmax weight has a fat tail (top-10k is ~20 kJ/mol off), so a large K is
+needed. **At `soft_temp≈1.0` the weight concentrates onto the most sequence-similar fragments**, so
+a small K is near-exact (dE vs full-DB ≈ 0.07 kJ/mol; internal `dE == E_after-E_before` ≈ 0.01
+kJ/mol at K=10k) — *and* it folds better (lower temperature is a cleaner structural signal than the
+broad T=2 average). Recommended for MC design: **`soft_temp=1.0, commit_topk=10_000`**.
+
+The remaining commit cost at small K is the O(N_db) top-K *selection* (`torch.topk` + score
+update), ~6 ms on pc30; on a larger DB (pc80) that scales ~linearly, so very large databases would
+want an incremental top-K. (A rank-1 background correction — add `W_tail·p_bg` for the dropped tail
+— recovers ~70% of the T=2 truncation error but stalls at ~6 kJ/mol; lowering the temperature is
+the cleaner route and is preferred.)
+
+## 9. Usage
 
 ```python
 from openawsem.memory.generators.mc_fragments import MCFragments
 from openawsem.memory.structures import fetch_structure
 
 structure = fetch_structure("1r69")
-gen = MCFragments("~/Databases/fragment_db/output_pc30")
 
-# CPU engine
+# exact full-DB engine (CPU or GPU)
+eng = MCFragments("~/Databases/fragment_db/output_pc30").mutation_engine(sequence, structure)
+eng = MCFragments(db, device="cuda").mutation_engine(sequence, structure)
+
+# fast MC engine: low temperature + truncated commit  (~2400 moves/s, dE≈full-DB, folds better)
+gen = MCFragments(db, device="cuda", soft_temp=1.0, commit_topk=10_000)
 eng = gen.mutation_engine(sequence, structure)
-
-# GPU engine (precompute + commit on CUDA, dE on host)
-eng = gen.mutation_engine(sequence, structure, device="cuda")
 
 eng.total_energy()        # current fragment-memory energy (kJ/mol)
 eng.dE(position, "A")     # ΔE of mutating 1-based `position` to alanine  (no state change)
-eng.commit(position, "A") # accept the mutation; rebuild affected windows
+eng.commit(position, "A") # accept the mutation; rebuild affected windows (top-K if commit_topk set)
 ```
 
 `generate(sequence)` still produces standard AWSEM `MemoryWells` (delegated to `LocalDB` soft),
-so the same backend serves both force-field generation and MC ΔE.
+so the same backend serves both force-field generation and MC ΔE.  Use the same `soft_temp` for
+`generate` and the engine so the folded potential and the MC objective match.
