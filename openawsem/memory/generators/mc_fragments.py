@@ -26,13 +26,14 @@ Because the new weight of fragment ``f`` is just the old weight multiplied by a 
 
 Then:  ΔE[w] = scale * (g @ S1[w,off]) / (g @ S0[w,off]) − E_wt[w]
 
-``dE`` is O(ALPHA × L) — essentially free.  ``commit`` rebuilds S0/S1 for affected windows
-in O(N_db × L) (numpy bincount + E_table dot).  Phase 3 ports the bincount tables to CUDA for
-parallel per-window commit (each window is independent).
+``dE`` is O(ALPHA × L) — essentially free.  ``commit`` rebuilds S0/S1 for the affected windows,
+which is O(N_db × L) (a softmax + bincount over every database fragment).
 
-Phase 1 (this file): CPU NumPy prototype.
-Phase 2: validated against :class:`FullDBMutationEnergy` and folding tests.
-Phase 3: PyTorch/CUDA acceleration for the commit step.
+GPU acceleration (``device='cuda'``).  The two costs that scale with the database — the one-time
+``E_table`` precompute and the per-accepted-move ``commit`` rebuild — run on the GPU, while the
+tiny ``dE`` (O(ALPHA × L), database-independent) stays on the CPU where kernel-launch latency
+would otherwise dominate.  See ``docs/mc_fragments.md`` for the full walk-through (what "rebuild
+the affected windows" means and why it is the expensive step).
 """
 from __future__ import annotations
 
@@ -72,12 +73,18 @@ class MCFragments(FragmentBackend):
     k_fm:
         Fragment-memory force constant (kJ/mol).
     chunk_size:
-        Number of DB fragments processed per chunk during table build.
+        Number of DB fragments processed per chunk during the CPU table build.
+    device:
+        ``None`` (default) for the CPU NumPy engine, or a torch device string such as
+        ``'cuda'`` to run the ``E_table`` precompute and ``commit`` rebuild on the GPU.
+    gpu_chunk:
+        Number of DB fragments per chunk when building ``E_table`` on the GPU.  Caps the
+        transient ``(chunk, n_terms)`` index tensor; ~400k keeps it near 270 MB.
     """
 
     def __init__(self, database, *, fragment_length=9, well_width=0.1, soft_temp=2.0,
                  n_mem=20, min_seq_sep=3, max_seq_sep=9, k_fm=0.04184, chunk_size=50_000,
-                 soft_pool=80, soft_seed_word=2):
+                 soft_pool=80, soft_seed_word=2, device=None, gpu_chunk=400_000):
         self.database = str(database)
         self.fragment_length = int(fragment_length)
         self.well_width = float(well_width)
@@ -89,6 +96,8 @@ class MCFragments(FragmentBackend):
         self.chunk_size = int(chunk_size)
         self.soft_pool = int(soft_pool)
         self.soft_seed_word = int(soft_seed_word)
+        self.device = device
+        self.gpu_chunk = int(gpu_chunk)
         self._db_cache: dict = {}
 
     @property
@@ -112,14 +121,18 @@ class MCFragments(FragmentBackend):
                        min_seq_sep=self.min_seq_sep,
                        max_seq_sep=self.max_seq_sep).generate(sequence)
 
-    def mutation_engine(self, sequence, structure, *, k_fm=None) -> "MCMutationEngine":
+    def mutation_engine(self, sequence, structure, *, k_fm=None,
+                        device="__default__") -> "MCMutationEngine":
         """Build a precomputed-table mutation engine for ``sequence`` on fixed ``structure``.
 
         The returned :class:`MCMutationEngine` exposes ``dE(position, new_aa)`` and
         ``commit(position, new_aa)`` with the same interface as
-        :class:`~openawsem.memory.mutation.FullDBMutationEnergy`.
+        :class:`~openawsem.memory.mutation.FullDBMutationEnergy`.  Pass ``device='cuda'``
+        to run the precompute and commit rebuild on the GPU.
         """
-        return MCMutationEngine(self, sequence, structure, k_fm=k_fm or self.k_fm)
+        dev = self.device if device == "__default__" else device
+        return MCMutationEngine(self, sequence, structure,
+                                k_fm=k_fm or self.k_fm, device=dev)
 
 
 class MCMutationEngine:
@@ -127,16 +140,21 @@ class MCMutationEngine:
 
     Stored tables after ``__init__``:
     - ``E_table[N_win, N_db]`` float32 — structural Gaussian energy per (window, fragment)
-    - ``scores[N_win, N_db]`` int16   — BLOSUM62 scores for the current sequence
-    - ``S0[N_win, L, ALPHA]`` float64 — weight sum per (window, offset, AA)
-    - ``S1[N_win, L, ALPHA]`` float64 — weighted energy sum per (window, offset, AA)
-    - ``E_wt[N_win]`` float64         — current energy per window
+    - ``scores[N_win, N_db]``  int     — BLOSUM62 scores for the current sequence
+    - ``S0[N_win, L, ALPHA]`` float64  — weight sum per (window, offset, AA)
+    - ``S1[N_win, L, ALPHA]`` float64  — weighted energy sum per (window, offset, AA)
+    - ``E_wt[N_win]`` float64          — current energy per window
 
-    ``dE`` is O(ALPHA × L): one 21-element dot product per affected window (~9).
-    ``commit`` is O(N_db × L): numpy bincount over E_table for each affected window.
+    ``E_table`` and ``scores`` are NumPy arrays in CPU mode and torch tensors on the GPU when
+    ``device`` is set; ``S0``/``S1``/``E_wt`` are always small host arrays (consumed by ``dE``).
+
+    ``dE`` is O(ALPHA × L): one 21-element dot product per affected window (~9), always on CPU.
+    ``commit`` is O(N_db × L): a softmax + bincount over every database fragment for each
+    affected window, on CPU (NumPy) or GPU (torch scatter) depending on ``device``.
     """
 
-    def __init__(self, gen: MCFragments, sequence: str, structure, *, k_fm: float = 0.04184):
+    def __init__(self, gen: MCFragments, sequence: str, structure, *,
+                 k_fm: float = 0.04184, device=None):
         if not isinstance(sequence, str):
             raise ValueError("MCMutationEngine supports a single chain (a sequence string)")
         idx = gen.db
@@ -154,6 +172,8 @@ class MCMutationEngine:
         self.scale = float(gen.n_mem)
         self.temp = gen.soft_temp
         self.chunk_size = gen.chunk_size
+        self.device = device
+        self.gpu_chunk = gen.gpu_chunk
 
         coords = FragmentMemory._structure_coords(structure)
         n = len(sequence)
@@ -167,19 +187,35 @@ class MCMutationEngine:
         # int32 is np.intp-compatible on 64-bit systems and halves memory vs int64.
         self._ctx_T = np.ascontiguousarray(self.valid_ctx.T).astype(np.int32)  # (L, N_frags)
 
-        logger.info("building E_table: %d fragments × %d windows ...", N_frags, N_windows)
-        self.E_table = self._build_table(N_frags, N_windows)
-        logger.info("building score table and S0/S1 bincount tables ...")
-        self.scores = self._build_scores(sequence, N_frags, N_windows)
+        if device is None:
+            self._gpu = None
+            logger.info("building E_table (CPU): %d fragments × %d windows ...",
+                        N_frags, N_windows)
+            self.E_table = self._build_table(N_frags, N_windows)
+            self.scores = self._build_scores(sequence, N_frags, N_windows)
+        else:
+            logger.info("building E_table (GPU %s): %d fragments × %d windows ...",
+                        device, N_frags, N_windows)
+            self._gpu = _TorchBackend(self, device, sequence)
+            self.E_table = self._gpu.E          # torch tensor on GPU
+            self.scores = self._gpu.scores      # torch tensor on GPU
+
         self.S0 = np.zeros((N_windows, self.L, ALPHA), dtype=np.float64)
         self.S1 = np.zeros((N_windows, self.L, ALPHA), dtype=np.float64)
         self.E_wt = np.zeros(N_windows, dtype=np.float64)
         for s in range(N_windows):
             self._rebuild_window_tables(s)
-        logger.info("MCMutationEngine ready — E_table %.0f MB, scores %.0f MB, "
-                    "S0/S1 %.0f KB",
-                    self.E_table.nbytes / 1e6, self.scores.nbytes / 1e6,
-                    (self.S0.nbytes + self.S1.nbytes) / 1e3)
+
+        e_mb = self._nbytes(self.E_table) / 1e6
+        s_mb = self._nbytes(self.scores) / 1e6
+        logger.info("MCMutationEngine ready (%s) — E_table %.0f MB, scores %.0f MB",
+                    device or "cpu", e_mb, s_mb)
+
+    @staticmethod
+    def _nbytes(arr) -> int:
+        if isinstance(arr, np.ndarray):
+            return arr.nbytes
+        return arr.element_size() * arr.nelement()   # torch tensor
 
     # ----- structural geometry ------------------------------------------- #
 
@@ -209,7 +245,7 @@ class MCMutationEngine:
             [("A", A), ("SEPI", SEPI), ("API", API), ("R", R), ("SIG", SIG)],
             [np.int32, np.int32, np.int32, np.float32, np.float32])}
 
-    # ----- E_table precompute -------------------------------------------- #
+    # ----- E_table precompute (CPU) -------------------------------------- #
 
     def _pool_gaussians(self, s, rows):
         """(M,) float32 summed Gaussian for ``rows`` fragments and window ``s``."""
@@ -235,7 +271,7 @@ class MCMutationEngine:
                 logger.debug("  E_table window %d/%d", s + 1, N_windows)
         return E
 
-    # ----- BLOSUM score table -------------------------------------------- #
+    # ----- BLOSUM score table (CPU) -------------------------------------- #
 
     def _build_scores(self, sequence, N_frags, N_windows):
         scores = np.zeros((N_windows, N_frags), dtype=np.int16)
@@ -259,15 +295,24 @@ class MCMutationEngine:
         return (self.scale / e.sum()) * e
 
     def _rebuild_window_tables(self, s):
-        """Rebuild S0[s], S1[s], E_wt[s] from current scores and E_table."""
+        """Rebuild S0[s], S1[s], E_wt[s] from the current scores and E_table.
+
+        This is the per-affected-window cost during ``commit``: it forms the softmax weight
+        of every database fragment for window ``s`` and bins those weights (and weight·energy)
+        by the amino acid each fragment carries at each offset.  O(N_db × L).
+        """
+        if self._gpu is not None:
+            self.S0[s], self.S1[s], self.E_wt[s] = self._gpu.rebuild(s, self.scale, self.temp)
+            return
         wts = self._softmax_weights_for(s)        # (N_frags,) float64
         E_w = self.E_table[s].astype(np.float64)  # (N_frags,) float64 view of float32 table
-        self.E_wt[s] = float(np.dot(wts, E_w))
         wE = wts * E_w                             # (N_frags,) float64
         for off in range(self.L):
             aa = self._ctx_T[off]                  # (N_frags,) int labels
             self.S0[s, off] = np.bincount(aa, weights=wts, minlength=ALPHA)[:ALPHA]
             self.S1[s, off] = np.bincount(aa, weights=wE,  minlength=ALPHA)[:ALPHA]
+        # E_wt = Σ_f w_f·E_f = Σ_a S1[s,0,a]; reuse S1 instead of a second O(N_db) dot.
+        self.E_wt[s] = float(self.S1[s, 0].sum())
 
     # ----- covering windows ---------------------------------------------- #
 
@@ -282,7 +327,8 @@ class MCMutationEngine:
     def dE(self, position, new_aa) -> float:
         """ΔE of mutating ``position`` (1-based) to ``new_aa`` on the current sequence.
 
-        O(ALPHA × L) — one 21-element dot product per affected window.
+        O(ALPHA × L) — one 21-element dot product per affected window.  Always runs on the
+        host (the per-call work is too small to benefit from a GPU launch).
 
         Note: GLY mutations are not corrected for the missing CB atom in this prototype.
         Non-GLY mutations agree with :class:`FullDBMutationEnergy` to float32 precision.
@@ -305,7 +351,7 @@ class MCMutationEngine:
         return float(-self.k_fm * de)
 
     def commit(self, position, new_aa) -> None:
-        """Apply a mutation permanently; rebuild S0/S1 tables for affected windows."""
+        """Apply a mutation permanently; rebuild S0/S1 tables for the affected windows."""
         kk, windows = self._covering_windows(position)
         new_code = int(encode_sequence(new_aa)[0])
         old_code = int(encode_sequence(self.seq[kk])[0])
@@ -313,14 +359,113 @@ class MCMutationEngine:
             return
         for s in windows:
             off = kk - s
-            delta_B = (SCORE_TABLE[new_code, self._ctx_T[off]]
-                       - SCORE_TABLE[old_code, self._ctx_T[off]])
-            self.scores[s] = np.clip(
-                self.scores[s].astype(np.int32) + delta_B,
-                -32768, 32767).astype(np.int16)
+            if self._gpu is not None:
+                self._gpu.apply_score_delta(s, off, new_code, old_code)
+            else:
+                delta_B = (SCORE_TABLE[new_code, self._ctx_T[off]]
+                           - SCORE_TABLE[old_code, self._ctx_T[off]])
+                self.scores[s] = np.clip(
+                    self.scores[s].astype(np.int32) + delta_B,
+                    -32768, 32767).astype(np.int16)
             self._rebuild_window_tables(s)
         self.seq[kk] = new_aa
 
     def total_energy(self) -> float:
         """Total fragment-memory energy for the current sequence on the fixed structure."""
         return float(-self.k_fm * self.E_wt.sum())
+
+
+class _TorchBackend:
+    """GPU-resident E_table/scores + per-window S0/S1 rebuild (torch).
+
+    Holds the two O(N_db) tensors on the GPU and rebuilds the small S0/S1/E_wt tables for one
+    window at a time, copying the results back to the host so the hot ``dE`` loop stays on CPU.
+    The softmax weights and the scatter accumulate in float64 (the per-window scatter is
+    memory-bound, only ~2.4× the float32 cost, so it stays ~20× faster than CPU while keeping
+    ``dE == E_after - E_before`` consistent to double precision).  ``E_table`` itself is held in
+    float32; GPU and CPU engines then agree to ~1e-6 kJ/mol on total energy and dE.
+    """
+
+    def __init__(self, eng: MCMutationEngine, device, sequence: str):
+        import torch
+        self.torch = torch
+        self.eng = eng
+        self.device = torch.device(device)
+        self.ctx = torch.as_tensor(eng._ctx_T, device=self.device, dtype=torch.long)  # (L, N)
+        self.B = torch.as_tensor(np.asarray(SCORE_TABLE), device=self.device, dtype=torch.int32)
+        self.E = self._build_table()                # (W, N) float32 on GPU
+        self.scores = self._build_scores(sequence)  # (W, N) int32 on GPU
+
+    def _build_table(self):
+        torch, eng, dev = self.torch, self.eng, self.device
+        dist = eng.idx.dist                          # memmap (Nfull, n_seps, npair) Angstrom
+        n_seps, npair = dist.shape[1], dist.shape[2]
+        stride = n_seps * npair
+        valid_rows = np.asarray(eng.valid_rows)
+        N, W = len(valid_rows), len(eng.terms)
+        E = torch.empty((W, N), device=dev, dtype=torch.float32)
+        gterms = []
+        for s in range(W):
+            t = eng.terms[s]
+            if len(t["A"]) == 0:
+                gterms.append(None); continue
+            gterms.append((
+                torch.as_tensor(t["A"], device=dev, dtype=torch.long),
+                torch.as_tensor(t["SEPI"] * npair + t["API"], device=dev, dtype=torch.long),
+                torch.as_tensor(t["R"], device=dev, dtype=torch.float32),
+                torch.as_tensor(0.5 / (t["SIG"] ** 2), device=dev, dtype=torch.float32)))
+        zero = torch.zeros((), device=dev)
+        chunk = eng.gpu_chunk
+        for c0 in range(0, N, chunk):
+            c1 = min(c0 + chunk, N)
+            rows = valid_rows[c0:c1]
+            lo, hi = int(rows.min()), int(rows.max()) + eng.L
+            dspan = torch.as_tensor(np.ascontiguousarray(dist[lo:hi]).reshape(-1), device=dev)
+            local = torch.as_tensor(rows - lo, device=dev, dtype=torch.long)
+            for s in range(W):
+                g = gterms[s]
+                if g is None:
+                    E[s, c0:c1] = 0.0; continue
+                A, base, R, inv2s = g
+                lin = (local[:, None] + A[None, :]) * stride + base[None, :]
+                d = dspan[lin] * 0.1
+                G = torch.exp(-((R[None, :] - d) ** 2) * inv2s[None, :])
+                E[s, c0:c1] = torch.where(torch.isnan(d), zero, G).sum(dim=1)
+        torch.cuda.synchronize()
+        return E
+
+    def _build_scores(self, sequence):
+        torch, eng, dev = self.torch, self.eng, self.device
+        W, N, L = len(eng.terms), self.ctx.shape[1], eng.L
+        scores = torch.empty((W, N), device=dev, dtype=torch.int32)
+        for s in range(W):
+            q = encode_sequence(sequence[s:s + L])
+            acc = torch.zeros(N, device=dev, dtype=torch.int32)
+            for off in range(L):
+                acc += self.B[int(q[off]), self.ctx[off]]
+            scores[s] = acc
+        torch.cuda.synchronize()
+        return scores
+
+    def rebuild(self, s, scale, temp):
+        """Rebuild S0[s], S1[s], E_wt[s] on the GPU; return host (S0_np, S1_np, E_wt_float)."""
+        torch, dev, L = self.torch, self.device, self.eng.L
+        sc = self.scores[s].double()
+        sc = sc - sc.max()
+        e = torch.exp(sc / temp)
+        w = (scale / e.sum()) * e                    # (N,) float64 softmax weights
+        Es = self.E[s].double()                       # (N,) structural energies
+        wE = w * Es
+        # One scatter over all L offsets at once: ``expand`` is a zero-copy view, so w is read
+        # through cache instead of re-streamed per offset (fewer launches, ~17% faster rebin).
+        S0 = torch.zeros((L, ALPHA), device=dev, dtype=torch.float64)
+        S1 = torch.zeros((L, ALPHA), device=dev, dtype=torch.float64)
+        S0.scatter_add_(1, self.ctx, w.unsqueeze(0).expand(L, -1))
+        S1.scatter_add_(1, self.ctx, wE.unsqueeze(0).expand(L, -1))
+        E_wt = float(S1[0].sum())                     # = Σ_f w_f·E_f, reuse S1 (no extra dot)
+        return (S0.cpu().numpy(), S1.cpu().numpy(), E_wt)
+
+    def apply_score_delta(self, s, off, new_code, old_code):
+        """In-place GPU update of scores[s] for a mutation at offset ``off``."""
+        ctx_row = self.ctx[off]
+        self.scores[s] += self.B[new_code, ctx_row] - self.B[old_code, ctx_row]
