@@ -94,12 +94,24 @@ class MCFragments(FragmentBackend):
         better folding); at the default ``soft_temp=2.0`` the weight has a fat tail, so a larger
         ``commit_topk`` (~200k) is needed to stay within ~kT.  ``None`` (default) is the exact
         full-DB rebuild.
+    triton_commit:
+        Use the Triton block-partial histogram for the exact full-DB ``commit`` rebuild
+        (``commit_topk=None``) on a CUDA/ROCm device.  Each program reduces its tile of fragments
+        by amino acid without atomics and writes its own partial, replacing the contention-bound
+        ``scatter_add`` (~30-36× faster end-to-end commit on a 3080 Ti).  Default ``True``; falls
+        back to the ``scatter_add`` when triton is unavailable, on CPU, or when ``commit_topk`` is
+        set.
+    hist_dtype:
+        Accumulation precision for the Triton histogram.  ``'f32'`` (default) sums each tile in
+        float32 and reduces into float64 (``dE`` within ~1e-5 kJ/mol of the float64 scatter, well
+        inside the mutation tolerance); ``'f64'`` accumulates entirely in float64 (bit-exact
+        ``dE == E_after − E_before``, ~6× slower than ``'f32'`` but still faster than the scatter).
     """
 
     def __init__(self, database, *, fragment_length=9, well_width=0.1, soft_temp=2.0,
                  n_mem=20, min_seq_sep=3, max_seq_sep=9, k_fm=0.04184, chunk_size=50_000,
                  soft_pool=80, soft_seed_word=2, device=None, gpu_chunk=400_000,
-                 commit_topk=None):
+                 commit_topk=None, triton_commit=True, hist_dtype="f32"):
         self.database = str(database)
         self.fragment_length = int(fragment_length)
         self.well_width = float(well_width)
@@ -114,6 +126,8 @@ class MCFragments(FragmentBackend):
         self.device = device
         self.gpu_chunk = int(gpu_chunk)
         self.commit_topk = None if commit_topk is None else int(commit_topk)
+        self.triton_commit = bool(triton_commit)
+        self.hist_dtype = str(hist_dtype)
         self._db_cache: dict = {}
 
     @property
@@ -191,6 +205,8 @@ class MCMutationEngine:
         self.device = device
         self.gpu_chunk = gen.gpu_chunk
         self.commit_topk = gen.commit_topk
+        self.triton_commit = gen.triton_commit
+        self.hist_dtype = gen.hist_dtype
 
         coords = FragmentMemory._structure_coords(structure)
         n = len(sequence)
@@ -433,6 +449,13 @@ class _TorchBackend:
         self.B = torch.as_tensor(np.asarray(SCORE_TABLE), device=self.device, dtype=torch.int32)
         self.E = self._build_table()                # (W, N) float32 on GPU
         self.scores = self._build_scores(sequence)  # (W, N) int32 on GPU
+        # Triton block-partial histogram replaces the float64 scatter_add for the exact full-DB
+        # commit (commit_topk=None).  int8 ctx halves its read traffic; cached once.
+        from openawsem.memory.generators import _mc_triton
+        self._triton = (_mc_triton if (eng.triton_commit and _mc_triton.HAVE_TRITON
+                                       and self.device.type == "cuda") else None)
+        self.ctx_i8 = self.ctx.to(torch.int8).contiguous() if self._triton is not None else None
+        self.hist_dtype = eng.hist_dtype
 
     def _build_table(self):
         torch, eng, dev = self.torch, self.eng, self.device
@@ -458,7 +481,7 @@ class _TorchBackend:
             c1 = min(c0 + chunk, N)
             rows = valid_rows[c0:c1]
             lo, hi = int(rows.min()), int(rows.max()) + eng.L
-            dspan = torch.as_tensor(np.ascontiguousarray(dist[lo:hi]).reshape(-1), device=dev)
+            dspan = torch.as_tensor(np.array(dist[lo:hi]).reshape(-1), device=dev)  # copy: dist is a read-only memmap
             local = torch.as_tensor(rows - lo, device=dev, dtype=torch.long)
             for s in range(W):
                 g = gterms[s]
@@ -497,6 +520,10 @@ class _TorchBackend:
         """
         torch, dev, L = self.torch, self.device, self.eng.L
         topk = self.eng.commit_topk
+        if self._triton is not None and topk is None:
+            return self._triton.rebuild_windows(
+                self.scores, self.E, self.ctx_i8, list(windows), temp, scale,
+                hist_dtype=self.hist_dtype)
         nw = len(windows)
         S0 = torch.zeros((nw, L, ALPHA), device=dev, dtype=torch.float64)
         S1 = torch.zeros((nw, L, ALPHA), device=dev, dtype=torch.float64)

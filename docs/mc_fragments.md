@@ -381,6 +381,26 @@ Several changes reduced the constant factors without changing the result:
   gap of about 0.02 kJ/mol in the identity $\Delta E = E_\text{after}-E_\text{before}$, so float64 is
   the default and float32 is left as an option.
 
+### Contention-free histogram (the exact full-database commit)
+
+The dominant cost above is atomic contention: the `scatter_add` sends $N\cdot L$ additions into only
+$n_\text{aa}$ global bins, which serialize, so it runs at about 2 percent of peak memory bandwidth. When
+`triton_commit=True` (the default on a CUDA or ROCm device, for the exact `commit_topk=None` path), the
+scatter is replaced by a Triton block-partial histogram: each program reduces its tile of fragments by
+amino acid with shared-memory tree reductions (no atomics), writes its own $(L, n_\text{aa})$ partial,
+and the partials are summed. There is no shared accumulator, so there is no contention, and the result
+is deterministic. The kernel also reads $\texttt{ctx}$ as int8 rather than int64 and recovers the softmax
+denominator from the histogram (no separate sum-exp pass), so the surrounding $O(N)$ traffic shrinks too.
+
+The aggregation precision is set by `hist_dtype`: `f32` reduces each tile in float32 into a float64 total
+(the trial $\Delta E$ stays within about $10^{-5}$ kJ/mol of the float64 scatter, inside the mutation
+tolerance) and `f64` accumulates entirely in float64 (bit-exact $\Delta E = E_\text{after}-E_\text{before}$).
+On an RTX 3080 Ti this lowers the exact full-database commit on 1r69 from about 215 ms to about 7 ms in
+`f32` (a factor of 30, roughly 140 commits per second) and to about 54 ms in `f64`; on the larger
+11-million-fragment database the commit drops from about 1.0 s to about 29 ms (a factor of 36). The
+histogram is now compute-bound on the masked reductions rather than contention-bound, so further gains
+would come from the reduction itself.
+
 With the truncated commit (`commit_topk`, see [Mutation acceptance](#mutation-acceptance)) the
 histogram is no longer the bottleneck, because it now runs over $K$ fragments instead of $N$. At
 `soft_temp=1.0` and $K=10^4$ the remaining commit cost is the work that is still proportional to $N$:
@@ -487,6 +507,8 @@ Key constructor parameters:
 | `k_fm` | 0.04184 | fragment-memory force constant (kJ/mol) |
 | `device` | `None` | `None` for CPU; `'cuda'` to run precompute and commit on the GPU |
 | `commit_topk` | `None` | `None` for an exact full-database commit; $K$ for a truncated commit |
+| `triton_commit` | `True` | use the contention-free Triton histogram for the exact GPU commit (falls back to the scatter on CPU / no triton / when `commit_topk` is set) |
+| `hist_dtype` | `'f32'` | Triton histogram precision: `'f32'` (fast, $\Delta E$ within ~$10^{-5}$ kJ/mol) or `'f64'` (bit-exact) |
 | `soft_pool` | 80 | candidate pool size per window for `generate` |
 | `soft_seed_word` | 2 | exact seed length for the `generate` retrieval |
 | `chunk_size`, `gpu_chunk` | 50000, 400000 | fragments per chunk in the CPU and GPU precompute |
