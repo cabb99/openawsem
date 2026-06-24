@@ -150,27 +150,20 @@ All encoders map a 9-mer to a unit vector and differ only in $f_\theta$. v0 is p
 and v3 are trained (see [Metric learning](#metric-learning)). The learned head is a small
 batch-normalized MLP, `Linear→BN→ReLU→Linear→BN→ReLU→Linear`, hidden width 256, output $d=64$.
 
+![ml encoder architectures v0/v1/v3](figures/ml_encoders.svg)
+
+*The three encoders. Input (grey) and the L2-normalized output `z` (green); the trained head is a
+batch-normalized MLP whose `Linear→BatchNorm→ReLU` runs are collapsed into single **Dense** blocks
+(blue), with a final **Linear** projection. v3 prepends the frozen ESM-2 model (orange) and a
+mean-pool over the window's residues. The figure is generated automatically from the PyTorch modules
+— forward-hook introspection → a semantic block spec → [neural-netz](https://typst.app/universe/package/neural-netz/)
+Typst → SVG — by [`docs/figures/make_arch_figs.py`](figures/make_arch_figs.py); the intermediate
+spec is in [`docs/figures/encoders.json`](figures/encoders.json):*
+
 ```
-        INPUT (a 9-mer)                    f_θ                                  z ∈ R^d
- ─────────────────────────────────────────────────────────────────────────────────────────
- v0   BLOSUM62 rows of the 9 residues   ───────── identity ─────────►   concat 9×20 = 180
-      row(a) = BLOSUM62[a, :20]                                          then L2-normalize
-      (no parameters)
-
- v1   BLOSUM62 rows (180-dim)  ─►  MLP 180 → 256 → 256 → 64  ─────────►  L2-normalize  (d=64)
-      (only the 9-mer; ~80k trained weights)
-
- v3   full chain  s₁ s₂ … s_n
-            │
-            ▼   ESM-2  (frozen protein language model)
-        per-residue context embeddings  h₁ … h_n,   h ∈ R^D   (D = 640 for 150M, 1280 for 650M)
-            │
-            ▼   take the window's 9 residues and mean-pool
-        h̄ = (1/L) Σ_{a} h_{s+a}  ∈ R^D
-            │
-            ▼   MLP  D → 256 → 256 → 64
-        ──────────────────────────────────────────────────────────────►  L2-normalize  (d=64)
-      (ESM-2 frozen; ONLY the head is trained)
+v0 : Input(180) → L2-norm(180)
+v1 : Input(180) → Dense(256) → Dense(256) → Linear(64) → L2-norm(64)
+v3 : Input(chain) → ESM-2 frozen(640) → mean-pool(640) → Dense(256) → Dense(256) → Linear(64) → L2-norm(64)
 ```
 
 Formally, with $B$ the BLOSUM62 matrix, $\mathrm{onehot}$ over the 20 amino acids, and $h_i$ the

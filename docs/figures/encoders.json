@@ -1,0 +1,107 @@
+{
+  "v0  (BLOSUM-cosine, no training)": [
+    {
+      "kind": "Input",
+      "label": "9-mer\\nBLOSUM62 rows",
+      "width": 180
+    },
+    {
+      "kind": "Norm",
+      "label": "L2-normalize",
+      "width": 180,
+      "out": "z in R^180"
+    }
+  ],
+  "v1  (BLOSUM-MLP, trained)": [
+    {
+      "kind": "Input",
+      "label": "9-mer\\nBLOSUM62 rows",
+      "width": 180
+    },
+    {
+      "width": 256,
+      "ops": [
+        "Linear",
+        "BatchNorm1d",
+        "ReLU"
+      ],
+      "act": true,
+      "kind": "Dense"
+    },
+    {
+      "width": 256,
+      "ops": [
+        "Linear",
+        "BatchNorm1d",
+        "ReLU"
+      ],
+      "act": true,
+      "kind": "Dense"
+    },
+    {
+      "width": 64,
+      "ops": [
+        "Linear"
+      ],
+      "act": false,
+      "kind": "Linear"
+    },
+    {
+      "kind": "Norm",
+      "label": "L2-normalize",
+      "width": 64,
+      "out": "z in R^64"
+    }
+  ],
+  "v3  (ESM-2 context + trained head)": [
+    {
+      "kind": "Input",
+      "label": "chain\\nsequence",
+      "width": 0
+    },
+    {
+      "kind": "PLM",
+      "label": "ESM-2\\n(frozen)",
+      "width": 640
+    },
+    {
+      "kind": "Pool",
+      "label": "mean-pool\\n9-mer",
+      "width": 640
+    },
+    {
+      "width": 256,
+      "ops": [
+        "Linear",
+        "BatchNorm1d",
+        "ReLU"
+      ],
+      "act": true,
+      "kind": "Dense"
+    },
+    {
+      "width": 256,
+      "ops": [
+        "Linear",
+        "BatchNorm1d",
+        "ReLU"
+      ],
+      "act": true,
+      "kind": "Dense"
+    },
+    {
+      "width": 64,
+      "ops": [
+        "Linear"
+      ],
+      "act": false,
+      "kind": "Linear"
+    },
+    {
+      "kind": "Norm",
+      "label": "L2-normalize",
+      "width": 64,
+      "out": "z in R^64"
+    }
+  ]
+}
