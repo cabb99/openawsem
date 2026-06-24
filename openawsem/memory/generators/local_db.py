@@ -23,6 +23,42 @@ from openawsem.memory.generators.base import FragmentBackend, Registry
 
 logger = logging.getLogger(__name__)
 
+_CACB_PAIRS = (("CA", "CA"), ("CA", "CB"), ("CB", "CA"), ("CB", "CB"))
+
+
+def accumulate_soft_wells(cols, idx, record, start, base, rows, weights, *,
+                          fragment_length, min_seq_sep, max_seq_sep, well_width,
+                          atom_pairs=_CACB_PAIRS):
+    """Append the score-weighted CA/CB wells of one window to ``cols`` (shared by ``local_db``
+    soft and the ``ml`` backend).
+
+    ``rows`` are database fragment **start** rows and ``weights`` their per-candidate weights;
+    pointwise distances are gathered from ``idx.dist`` (Angstrom -> nm), the GLY/CB pairs are
+    dropped using the (possibly mutated) query ``record``, and ``sigma = well_width*sep**0.15``.
+    """
+    rows = np.asarray(rows)
+    apidx = {p: ATOM_PAIRS.index(p) for p in atom_pairs}
+    for a in range(fragment_length):
+        for b in range(a + 1, fragment_length):
+            sep = b - a
+            if not (min_seq_sep <= sep <= max_seq_sep) or sep not in idx._sep_index:
+                continue
+            si, sigma = idx._sep_index[sep], well_width * sep ** 0.15
+            resid_i, resid_j = base + start + a + 1, base + start + b + 1
+            gly_i, gly_j = record[start + a] == "G", record[start + b] == "G"
+            for name_i, name_j in atom_pairs:
+                if (name_i == "CB" and gly_i) or (name_j == "CB" and gly_j):
+                    continue
+                d = idx.dist[rows + a, si, apidx[(name_i, name_j)]] / 10.0
+                ok = ~np.isnan(d)
+                m = int(ok.sum())
+                if not m:
+                    continue
+                cols["resid_i"].extend([resid_i] * m); cols["name_i"].extend([name_i] * m)
+                cols["resid_j"].extend([resid_j] * m); cols["name_j"].extend([name_j] * m)
+                cols["r_mean"].extend(d[ok].tolist()); cols["sigma"].extend([sigma] * m)
+                cols["weight"].extend(weights[ok].tolist())
+
 
 @Registry.register("local_db")
 class LocalDB(FragmentBackend):
@@ -188,7 +224,6 @@ class LocalDB(FragmentBackend):
             raise TypeError("weighting='soft' needs a FragmentIndex; build one with "
                             "`python -m openawsem.memory.retrieval.index <database>`")
         L = self.fragment_length
-        apidx = {p: ATOM_PAIRS.index(p) for p in self._ATOM_PAIRS}
         keep_rows = self._keep_rows(sequence)
         cols: dict = {c: [] for c in WELLS_COLUMNS}
         n_windows = 0
@@ -201,7 +236,7 @@ class LocalDB(FragmentBackend):
                                                 seed_word=self.soft_seed_word, keep_rows=keep_rows)
                 w = np.exp((scores - scores.max()) / self.soft_temp)
                 w = self.n_mem * w / w.sum()
-                self._accumulate_soft(cols, idx, apidx, record, start, base, rows, w)
+                self._accumulate_soft(cols, record, start, base, rows, w)
                 n_windows += 1
             base += n
 
@@ -214,28 +249,12 @@ class LocalDB(FragmentBackend):
                                   "soft_pool": self.soft_pool, "n_windows": int(n_windows)})
         return memory
 
-    def _accumulate_soft(self, cols, idx, apidx, record, start, base, rows, weights):
+    def _accumulate_soft(self, cols, record, start, base, rows, weights):
         """Append the score-weighted wells of one window (candidate ``rows`` with ``weights``)."""
-        for a in range(self.fragment_length):
-            for b in range(a + 1, self.fragment_length):
-                sep = b - a
-                if not (self.min_seq_sep <= sep <= self.max_seq_sep) or sep not in idx._sep_index:
-                    continue
-                si, sigma = idx._sep_index[sep], self.well_width * sep ** 0.15
-                resid_i, resid_j = base + start + a + 1, base + start + b + 1
-                gly_i, gly_j = record[start + a] == "G", record[start + b] == "G"
-                for name_i, name_j in self._ATOM_PAIRS:
-                    if (name_i == "CB" and gly_i) or (name_j == "CB" and gly_j):
-                        continue
-                    d = idx.dist[rows + a, si, apidx[(name_i, name_j)]] / 10.0
-                    ok = ~np.isnan(d)
-                    m = int(ok.sum())
-                    if not m:
-                        continue
-                    cols["resid_i"].extend([resid_i] * m); cols["name_i"].extend([name_i] * m)
-                    cols["resid_j"].extend([resid_j] * m); cols["name_j"].extend([name_j] * m)
-                    cols["r_mean"].extend(d[ok].tolist()); cols["sigma"].extend([sigma] * m)
-                    cols["weight"].extend(weights[ok].tolist())
+        accumulate_soft_wells(cols, self.db, record, start, base, rows, weights,
+                              fragment_length=self.fragment_length, min_seq_sep=self.min_seq_sep,
+                              max_seq_sep=self.max_seq_sep, well_width=self.well_width,
+                              atom_pairs=self._ATOM_PAIRS)
 
     def mutation_engine(self, sequence, structure, *, method="fulldb", k_fm=0.04184,
                         cache_commit=True):
