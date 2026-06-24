@@ -381,3 +381,81 @@ class FullDBMutationEnergy(MutationEnergy):
             self.W[s] = self._precompute_window(s)
         for s in windows:
             self.E_wt[s] = self._wt_energy(s)
+
+
+class MlMutationEnergy(MutationEnergy):
+    """Mutation ΔE of an ``ml`` (learned-embedding) memory on a fixed structure.
+
+    Reuses :class:`MutationEnergy`'s fixed-structure geometry (``terms`` / :meth:`_gaussians` /
+    :meth:`_gly_mask`) but retrieves candidates by the learned cosine metric
+    (:class:`~openawsem.memory.retrieval.embedding.EmbeddingIndex`) instead of the BLOSUM
+    ``topk_pool``, weighting them ``softmax(similarity/temp)`` scaled to ``n_mem``.  The learned
+    score is **not** BLOSUM-additive, so there is no O(alphabet*L) closed form: ``dE`` re-embeds and
+    re-retrieves the windows covering the mutated position (the "faithful" pattern).  With an HNSW
+    :class:`EmbeddingIndex` (``ml`` built with ``index_type='hnsw'``) this reaches ~1000 mut/s,
+    enough for Monte-Carlo; the exact-flat index is ~2-3 mut/s (use it as the ΔE oracle)."""
+
+    def __init__(self, ml, sequence, structure, *, k_fm=0.04184):
+        if not isinstance(sequence, str):
+            raise ValueError("MlMutationEnergy supports a single chain (a sequence string)")
+        idx = ml.db
+        if not isinstance(idx, FragmentIndex):
+            raise TypeError("ml mutation ΔE needs a FragmentIndex database")
+        self.idx = idx
+        self.emb = ml.emb
+        self.seq = sequence
+        self.k_fm = float(k_fm)
+        self.L = ml.fragment_length
+        self.minsep, self.maxsep = ml.min_seq_sep, ml.max_seq_sep
+        self.well_width = ml.well_width
+        self.scale = float(ml.n_mem)
+        self.temp = float(ml.temp)
+        self.top_k = int(ml.top_k)
+        self.method = "ml"
+        self.sep_index = idx._sep_index
+        self.apidx = {p: ATOM_PAIRS.index(p) for p in _CACB}
+        coords = FragmentMemory._structure_coords(structure)
+        self.terms = [self._window_terms(s, coords) for s in range(len(sequence) - self.L + 1)]
+        self.E_wt = [self._window_energy(s, self._window(self.seq, s)) for s in range(len(self.terms))]
+
+    def _retrieve(self, window):
+        """Embedding top-k for ``window`` -> (rows, weights) with weights = softmax(sim/temp)*scale."""
+        rows, sims = self.emb.search(window, top=self.top_k)
+        rows, sims = np.asarray(rows), np.asarray(sims, dtype=np.float64)
+        w = np.exp((sims - sims.max()) / self.temp)
+        return rows, self.scale * w / w.sum()
+
+    def _window_energy(self, s, window) -> float:
+        """Soft fragment-memory energy of one window's wells on the fixed structure."""
+        t = self.terms[s]
+        if len(t["A"]) == 0:
+            return 0.0
+        rows, weights = self._retrieve(window)
+        if len(rows) == 0:
+            return 0.0
+        G = self._gaussians(s, rows)                       # (M, T)
+        return -self.k_fm * float(((weights @ G) * self._gly_mask(s, window)).sum())
+
+    def dE(self, position, new_aa) -> float:
+        """ΔE of mutating ``position`` (1-based) to ``new_aa`` against the current sequence."""
+        kk, windows = self._covering_windows(position)
+        if new_aa == self.seq[kk]:
+            return 0.0
+        de = 0.0
+        for s in windows:
+            _, mut = self._mutant_window(s, kk, new_aa)
+            de += self._window_energy(s, mut) - self.E_wt[s]
+        return de
+
+    def commit(self, position, new_aa) -> None:
+        """Apply a mutation permanently so subsequent ``dE`` calls are relative to it."""
+        kk, windows = self._covering_windows(position)
+        if new_aa == self.seq[kk]:
+            return
+        self.seq = self.seq[:kk] + new_aa + self.seq[kk + 1:]
+        for s in windows:
+            self.E_wt[s] = self._window_energy(s, self._window(self.seq, s))
+
+    def total_energy(self) -> float:
+        """Total ml fragment-memory energy for the current sequence on the fixed structure."""
+        return float(sum(self.E_wt))
