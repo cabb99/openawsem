@@ -90,29 +90,30 @@ def build_specs():
 
 
 # ----- neural-netz Typst emitter ----------------------------------------- #
-TYPE = {"Input": "custom", "PLM": "convres", "Pool": "fc", "Dense": "fc", "Linear": "fc",
-        "Norm": "custom"}
-FILL = {"Input": "#9aa7b8", "PLM": "#e0884e", "Pool": "#c0c8d4", "Dense": "#6fa8dc",
+# Every block is a 3-D box (type "convres") whose side scales with sqrt(dimension): a length-D
+# vector is drawn as roughly a sqrt(D) x sqrt(D) square, so box size reads off the array size.
+FILL = {"Input": "#9aa7b8", "PLM": "#e0884e", "Pool": "#aebfd0", "Dense": "#6fa8dc",
         "Linear": "#3d6fb4", "Norm": "#7bc47f"}
+PLAIN = {"Input": "input", "PLM": "ESM-2 (frozen)\\nreads whole chain", "Pool": "average the 9",
+         "Dense": "mix", "Linear": "compress", "Norm": "scale to length 1"}
 
 
 def layer_typst(b, i):
-    base = b.get("label") or b["kind"]
+    dim = b.get("width") or 0
+    side = round(max(3.0, (dim ** 0.5) * 0.62), 1) if dim else 4.0   # ~ sqrt(D) (a D-vector = √D square)
+    base = b.get("label") or PLAIN.get(b["kind"], b["kind"])
     if b["kind"] == "Norm":
         label = f'{base}\\n{b.get("out","")}'
-    elif b.get("width"):
-        label = f'{base}\\n({b["width"]})'
+    elif b["kind"] in ("Dense", "Linear", "Pool"):
+        label = f'{PLAIN[b["kind"]]}\\n({dim})'
+    elif dim:
+        label = f'{base}\\n({dim})'
     else:
         label = base
-    keys = [f'type: "{TYPE[b["kind"]]}"', f'name: "L{i}"', f'label: "{label}"',
-            f'fill: rgb("{FILL[b["kind"]]}")', "offset: 2.0"]
-    if b["kind"] in ("Dense", "Linear"):
-        keys += ["height: 6", "depth: 0"]            # 2D slab; dimension is in the label
-    elif b["kind"] == "PLM":
-        keys += ["height: 11", "depth: 4"]           # 3D slab to mark the big frozen model
-    else:
-        keys += ["height: 6", "depth: 0"]
-    return "    (" + ", ".join(keys) + "),"
+    return ("    (" + ", ".join([
+        'type: "convres"', f'name: "L{i}"', f'label: "{label}"',
+        f'fill: rgb("{FILL[b["kind"]]}")', "offset: 2.0",
+        f"height: {side}", f"depth: {round(side * 0.7, 1)}", "width: 1.6"]) + "),")
 
 
 def emit_typst(specs):

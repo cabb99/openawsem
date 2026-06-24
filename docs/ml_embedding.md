@@ -71,31 +71,13 @@ signal is the protein-language-model *context*, not extra capacity on the bare 9
 At inference the encoder is the entire model; everything downstream is geometry and bookkeeping
 shared with the other backends.
 
-```
-  target sequence       sliding 9-mers
-  M K T A Y I L K Q ...  ┌── x = "K T A Y I L K Q R" ──┐
-                         └───────────────┬─────────────┘
-                                         ▼
-                            ╔═════════════════════════╗
-                            ║   encoder  f_θ           ║     z = f_θ(x) / ‖f_θ(x)‖₂
-                            ║   (v0 | v1 | v3)         ║     a unit vector in R^d
-                            ╚════════════╤════════════╝
-                                         │ z_q
-                                         ▼
-   database of N        ┌───────────────────────────────────┐
-   fragment vectors ──► │  cosine ANN index                 │   s_f = z_q · z_f
-   z_f (precomputed)    │  (FAISS  flat = exact | HNSW)      │
-                        └────────────────┬──────────────────┘
-                                         │ top-k fragment rows + sims s
-                                         ▼
-                          w_f = N_mem · softmax(s_f / τ)          (per-window weights)
-                                         │
-                                         ▼
-              gather the neighbours' stored CA/CB distances  r_ij^f   (from FragmentIndex)
-                                         │
-                                         ▼
-                 one Gaussian well per (pair, neighbour)  →  MemoryWells  →  AWSEM V_FM
-```
+![How the ml backend chooses fragments](figures/ml_pipeline.svg)
+
+*The whole idea in five steps: slide a window along the protein, summarize it as a "fingerprint"
+vector, find the database fragments with the nearest fingerprints, borrow their measured atom
+distances, and add them as soft springs that shape the fold. The only thing that changes between
+versions is how the fingerprint is computed — v0 by sequence, v3 by an AI language model that
+matches on shape.*
 
 The database vectors $z_f$ are encoded once and stored in the index; a query protein is encoded per
 window at generation time. The wells are built by the same soft-accumulation code as `local_db`
@@ -152,13 +134,15 @@ batch-normalized MLP, `Linear→BN→ReLU→Linear→BN→ReLU→Linear`, hidden
 
 ![ml encoder architectures v0/v1/v3](figures/ml_encoders.svg)
 
-*The three encoders. Input (grey) and the L2-normalized output `z` (green); the trained head is a
-batch-normalized MLP whose `Linear→BatchNorm→ReLU` runs are collapsed into single **Dense** blocks
-(blue), with a final **Linear** projection. v3 prepends the frozen ESM-2 model (orange) and a
-mean-pool over the window's residues. The figure is generated automatically from the PyTorch modules
-— forward-hook introspection → a semantic block spec → [neural-netz](https://typst.app/universe/package/neural-netz/)
-Typst → SVG — by [`docs/figures/make_arch_figs.py`](figures/make_arch_figs.py); the intermediate
-spec is in [`docs/figures/encoders.json`](figures/encoders.json):*
+*The three encoders, each a chain of boxes carrying a vector of numbers from the input (grey) to the
+length-1 output `z` (green). Each `Linear→BatchNorm→ReLU` run of the trained head is collapsed into
+one **mix** block (blue), with a final **compress** projection; v3 prepends the frozen **ESM-2**
+model (orange) and an **average** over the window's 9 residues. Box size scales with √(vector length)
+— a length-D vector drawn as roughly a √D × √D square — so a bigger box literally means more numbers.
+The figure is generated automatically from the PyTorch modules — forward-hook introspection → a
+semantic block spec → [neural-netz](https://typst.app/universe/package/neural-netz/) Typst → SVG — by
+[`docs/figures/make_arch_figs.py`](figures/make_arch_figs.py); the intermediate spec is in
+[`docs/figures/encoders.json`](figures/encoders.json):*
 
 ```
 v0 : Input(180) → L2-norm(180)
