@@ -62,6 +62,20 @@ def main(argv=None):
                         help="local_db --soft softmax temperature (lower = sharper; default 2.0 folds best)")
     parser.add_argument("--soft-pool", type=int, default=80, dest="soft_pool",
                         help="local_db --soft candidate pool size per window")
+    parser.add_argument("--encoder", default="v0",
+                        help="ml: 'v0' (BLOSUM-cosine) or a path to learned encoder weights")
+    parser.add_argument("--embedding-index", default=None, dest="embedding_index",
+                        help="ml: directory of a prebuilt EmbeddingIndex (default: build in memory)")
+    parser.add_argument("--top-k", type=int, default=20, dest="top_k",
+                        help="ml: fragments retrieved per window")
+    parser.add_argument("--ml-temp", type=float, default=0.07, dest="ml_temp",
+                        help="ml: softmax temperature over retrieval similarities")
+    parser.add_argument("--no-backoff", action="store_true",
+                        help="ml: disable the marginal-tensor backoff for thin-coverage windows")
+    parser.add_argument("--backoff-sim", type=float, default=0.3, dest="backoff_sim",
+                        help="ml: similarity threshold below which a window backs off to the marginal")
+    parser.add_argument("--marginal-db", default=None, dest="marginal_db",
+                        help="ml: marginal tensor path (default <database>/tensors_openawsem.npz)")
     parser.add_argument("--out", default="fragment_memory.json")
     parser.add_argument("--list-methods", action="store_true", help="list usable methods and exit")
     args = parser.parse_args(argv)
@@ -93,6 +107,12 @@ def main(argv=None):
                     homolog_evalue=args.homolog_evalue, homolog_database=args.homolog_database,
                     weighting="soft" if args.soft else "hard",
                     soft_temp=args.soft_temp, soft_pool=args.soft_pool)
+    elif args.method == "ml":
+        opts.update(database=args.database, encoder=args.encoder,
+                    embedding_index=args.embedding_index, n_mem=args.n_mem,
+                    fragment_length=args.frag_length, top_k=args.top_k, temp=args.ml_temp,
+                    backoff=not args.no_backoff, backoff_sim=args.backoff_sim,
+                    marginal_db=args.marginal_db)
 
     memory = generate(sequence, method=args.method, **opts)
     memory.save(args.out)
