@@ -220,8 +220,11 @@ class MCMutationEngine:
         self.S0 = np.zeros((N_windows, self.L, ALPHA), dtype=np.float64)
         self.S1 = np.zeros((N_windows, self.L, ALPHA), dtype=np.float64)
         self.E_wt = np.zeros(N_windows, dtype=np.float64)
-        for s in range(N_windows):
-            self._rebuild_window_tables(s)
+        if self._gpu is not None:
+            self._rebuild_windows_gpu(range(N_windows))
+        else:
+            for s in range(N_windows):
+                self._rebuild_window_tables(s)
 
         e_mb = self._nbytes(self.E_table) / 1e6
         s_mb = self._nbytes(self.scores) / 1e6
@@ -312,28 +315,39 @@ class MCMutationEngine:
         return (self.scale / e.sum()) * e
 
     def _rebuild_window_tables(self, s):
-        """Rebuild S0[s], S1[s], E_wt[s] from the current scores and E_table.
+        """Rebuild S0[s], S1[s], E_wt[s] for window ``s`` on the CPU (NumPy path).
 
-        This is the per-affected-window cost during ``commit``: it forms the softmax weight
-        of every database fragment for window ``s`` and bins those weights (and weight·energy)
-        by the amino acid each fragment carries at each offset.  O(N_db × L).
+        Forms the softmax weight of each database fragment and bins the weights (and
+        weight·energy) by amino acid at each offset.  With ``commit_topk`` set, only the top-K
+        fragments by score are kept (selected on the raw score — monotonic with the weight — so
+        the O(N_db) ``exp`` is replaced by an ``exp`` over only K; the K survivors are
+        renormalized to ``scale``).
         """
-        if self._gpu is not None:
-            self.S0[s], self.S1[s], self.E_wt[s] = self._gpu.rebuild(s, self.scale, self.temp)
-            return
-        wts = self._softmax_weights_for(s)        # (N_frags,) float64
-        E_w = self.E_table[s].astype(np.float64)  # (N_frags,) float64 view of float32 table
-        wE = wts * E_w                             # (N_frags,) float64
+        sc = self.scores[s].astype(np.float64)
+        E_w = self.E_table[s].astype(np.float64)
         ctx_T = self._ctx_T
-        if self.commit_topk is not None and self.commit_topk < wts.shape[0]:
-            top = np.argpartition(wts, -self.commit_topk)[-self.commit_topk:]
-            wts, wE, ctx_T = wts[top], wE[top], ctx_T[:, top]
+        if self.commit_topk is not None and self.commit_topk < sc.shape[0]:
+            top = np.argpartition(sc, -self.commit_topk)[-self.commit_topk:]
+            sc, E_w, ctx_T = sc[top], E_w[top], ctx_T[:, top]
+        sc = sc - sc.max()
+        e = np.exp(sc / self.temp)
+        wts = (self.scale / e.sum()) * e
+        wE = wts * E_w
         for off in range(self.L):
-            aa = ctx_T[off]                        # (M,) int labels
+            aa = ctx_T[off]
             self.S0[s, off] = np.bincount(aa, weights=wts, minlength=ALPHA)[:ALPHA]
             self.S1[s, off] = np.bincount(aa, weights=wE,  minlength=ALPHA)[:ALPHA]
         # E_wt = Σ_f w_f·E_f = Σ_a S1[s,0,a]; reuse S1 instead of a second O(N_db) dot.
         self.E_wt[s] = float(self.S1[s, 0].sum())
+
+    def _rebuild_windows_gpu(self, windows):
+        """Rebuild a list of windows on the GPU with a single host transfer, then store them."""
+        windows = list(windows)
+        S0h, S1h, Ewh = self._gpu.rebuild_windows(windows, self.scale, self.temp)
+        for i, s in enumerate(windows):
+            self.S0[s] = S0h[i]
+            self.S1[s] = S1h[i]
+            self.E_wt[s] = Ewh[i]
 
     # ----- covering windows ---------------------------------------------- #
 
@@ -378,17 +392,20 @@ class MCMutationEngine:
         old_code = int(encode_sequence(self.seq[kk])[0])
         if new_code == old_code:
             return
-        for s in windows:
-            off = kk - s
-            if self._gpu is not None:
-                self._gpu.apply_score_delta(s, off, new_code, old_code)
-            else:
+        windows = list(windows)
+        if self._gpu is not None:
+            for s in windows:
+                self._gpu.apply_score_delta(s, kk - s, new_code, old_code)
+            self._rebuild_windows_gpu(windows)          # all windows, one host transfer
+        else:
+            for s in windows:
+                off = kk - s
                 delta_B = (SCORE_TABLE[new_code, self._ctx_T[off]]
                            - SCORE_TABLE[old_code, self._ctx_T[off]])
                 self.scores[s] = np.clip(
                     self.scores[s].astype(np.int32) + delta_B,
                     -32768, 32767).astype(np.int16)
-            self._rebuild_window_tables(s)
+                self._rebuild_window_tables(s)
         self.seq[kk] = new_aa
 
     def total_energy(self) -> float:
@@ -468,28 +485,38 @@ class _TorchBackend:
         torch.cuda.synchronize()
         return scores
 
-    def rebuild(self, s, scale, temp):
-        """Rebuild S0[s], S1[s], E_wt[s] on the GPU; return host (S0_np, S1_np, E_wt_float)."""
+    def rebuild_windows(self, windows, scale, temp):
+        """Rebuild S0/S1/E_wt for a list of windows on the GPU; return host arrays in ONE transfer.
+
+        Batching all affected windows into a single ``.cpu()`` avoids per-window GPU→CPU sync
+        latency (each sync ~0.4 ms; a commit touches ~L windows).  With ``commit_topk`` set the
+        top-K fragments are picked on the raw int score (monotonic with the weight), so the
+        softmax ``exp`` runs over only K instead of all N_db, and the K survivors are
+        renormalized to ``scale`` (at low ``soft_temp`` the dropped tail's weight is negligible,
+        so this matches the full-DB energy).
+        """
         torch, dev, L = self.torch, self.device, self.eng.L
-        sc = self.scores[s].double()
-        sc = sc - sc.max()
-        e = torch.exp(sc / temp)
-        w = (scale / e.sum()) * e                    # (N,) float64 softmax weights
-        Es = self.E[s].double()                       # (N,) structural energies
-        wE = w * Es
-        ctx = self.ctx
         topk = self.eng.commit_topk
-        if topk is not None and topk < w.shape[0]:
-            idx = torch.topk(w, topk, sorted=False).indices   # highest-weight fragments
-            w, wE, ctx = w[idx], wE[idx], self.ctx[:, idx]
-        # One scatter over all L offsets at once: ``expand`` is a zero-copy view, so w is read
-        # through cache instead of re-streamed per offset (fewer launches, ~17% faster rebin).
-        S0 = torch.zeros((L, ALPHA), device=dev, dtype=torch.float64)
-        S1 = torch.zeros((L, ALPHA), device=dev, dtype=torch.float64)
-        S0.scatter_add_(1, ctx, w.unsqueeze(0).expand(L, -1))
-        S1.scatter_add_(1, ctx, wE.unsqueeze(0).expand(L, -1))
-        E_wt = float(S1[0].sum())                     # = Σ_f w_f·E_f, reuse S1 (no extra dot)
-        return (S0.cpu().numpy(), S1.cpu().numpy(), E_wt)
+        nw = len(windows)
+        S0 = torch.zeros((nw, L, ALPHA), device=dev, dtype=torch.float64)
+        S1 = torch.zeros((nw, L, ALPHA), device=dev, dtype=torch.float64)
+        for i, s in enumerate(windows):
+            sc = self.scores[s]
+            if topk is not None and topk < sc.shape[0]:
+                idx = torch.topk(sc, topk, sorted=False).indices   # top-K by score (no O(N) exp)
+                scd, Es, ctx = sc[idx].double(), self.E[s][idx].double(), self.ctx[:, idx]
+            else:
+                scd, Es, ctx = sc.double(), self.E[s].double(), self.ctx
+            scd = scd - scd.max()
+            e = torch.exp(scd / temp)
+            w = (scale / e.sum()) * e
+            wE = w * Es
+            # One scatter over all L offsets at once: ``expand`` is a zero-copy view of the weights.
+            S0[i].scatter_add_(1, ctx, w.unsqueeze(0).expand(L, -1))
+            S1[i].scatter_add_(1, ctx, wE.unsqueeze(0).expand(L, -1))
+        S0h, S1h = S0.cpu().numpy(), S1.cpu().numpy()              # one host transfer each
+        E_wt = S1h[:, 0, :].sum(axis=1)                            # Σ_f w_f·E_f per window
+        return S0h, S1h, E_wt
 
     def apply_score_delta(self, s, off, new_code, old_code):
         """In-place GPU update of scores[s] for a mutation at offset ``off``."""
