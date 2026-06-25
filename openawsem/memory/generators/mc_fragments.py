@@ -107,17 +107,22 @@ class MCFragments(FragmentBackend):
         inside the mutation tolerance); ``'f64'`` accumulates entirely in float64 (bit-exact
         ``dE == E_after − E_before``, ~6× slower than ``'f32'`` but still faster than the scatter).
     gly_masking:
-        If ``True``, handle glycine correctly under sequence mutation: a virtual CB (built in Angstrom
-        from the backbone) is placed at structural glycines, and the CB-pair wells are masked by the
-        *current* residue (the ``Gother``/``Gtouch`` split) so they switch off when a position becomes
-        glycine and on when it stops being one.  This makes glycine-crossing mutations exact (agreeing
-        with :class:`FullDBMutationEnergy`).  Default ``False`` keeps the lean, fast behavior, which is
-        exact except for mutations into or out of glycine.  Works on CPU (``device=None``) and GPU
-        (``device='cuda'``); both store the ``Gother``/``Gtouch`` geometry resident (~9 GB float32 for
-        pc30/1r69 -- the GPU path needs a card with enough memory and raises a clear error otherwise).
-        A commit that does not change a position's glycine state is fast; one that flips a position into
-        or out of glycine rebuilds that geometry from the database (a re-read, ~0.5 s on the GPU), so
-        glycine-heavy walks are slower.
+        How glycine CB wells behave under sequence mutation.  Either way a virtual CB (built in Angstrom
+        from the backbone) is placed at every structural glycine, so every position has a CB and mutating
+        into or out of glycine is smooth (no on/off discontinuity in the geometry).
+
+        ``False`` (default): the lean, fast path.  Glycine is treated as having a CB and its wells stay
+        active (the database's virtual-CB convention); this is self-consistent and smooth, but differs
+        from the conventional masked energy at glycine positions (the glycine CB wells, ~7.5% of the
+        total on 1r69).
+
+        ``True``: additionally mask the CB-pair wells by the *current* residue (the ``Gother``/``Gtouch``
+        split), so they switch off where a position is glycine and on where it is not -- the exact
+        conventional energy, agreeing with :class:`FullDBMutationEnergy`.  Works on CPU (``device=None``)
+        and GPU (``device='cuda'``); it stores the ``Gother``/``Gtouch`` geometry resident (~9 GB float32
+        for pc30/1r69 -- the GPU path needs a card with enough memory and raises a clear error
+        otherwise).  A commit that does not change a position's glycine state is fast; one that flips a
+        position into or out of glycine rebuilds that geometry from the database (~0.5 s on the GPU).
     """
 
     def __init__(self, database, *, fragment_length=9, well_width=0.1, soft_temp=2.0,
@@ -223,10 +228,12 @@ class MCMutationEngine:
         self.hist_dtype = gen.hist_dtype
         self.gly_masking = gen.gly_masking
 
-        # With glycine masking the structure gets a virtual CB at glycine positions (built in Angstrom)
-        # so a glycine that mutates to a non-glycine has a CB to place wells on; the masking then keeps
-        # the wild-type energy unchanged by dropping CB terms wherever the current residue is glycine.
-        coords = FragmentMemory._structure_coords(structure, virtual_cb=self.gly_masking)
+        # Always place a virtual CB at structural glycines (built in Angstrom) so every position has a
+        # CB and mutating into or out of glycine is smooth -- no on/off discontinuity in the geometry.
+        # The default then treats glycine as having a CB (wells always active, the database's virtual-CB
+        # convention); ``gly_masking`` additionally drops those CB wells wherever the current residue is
+        # glycine, for the exact conventional energy.
+        coords = FragmentMemory._structure_coords(structure, virtual_cb=True)
         n = len(sequence)
         self.terms = [self._window_terms(s, coords) for s in range(n - self.L + 1)]
 
@@ -492,11 +499,10 @@ class MCMutationEngine:
         O(ALPHA × L) — one 21-element dot product per affected window.  Always runs on the
         host (the per-call work is too small to benefit from a GPU launch).
 
-        Glycine: with ``gly_masking=True`` (CPU) glycine-crossing mutations are exact (virtual CB +
-        query-based masking).  With the default ``gly_masking=False`` they are approximate -- CB wells
-        follow the fixed structure, not the current sequence -- so mutating *to* glycine over-counts and
-        mutating a structural glycine *away* under-counts (~6-26 kJ/mol on 1r69); all other mutations
-        agree with :class:`FullDBMutationEnergy` to float32 precision.
+        Glycine (see ``MCFragments.gly_masking``): both modes give every position a virtual CB so
+        mutations into/out of glycine are smooth.  The default treats glycine as having a CB (wells
+        active); ``gly_masking=True`` masks those wells by the current residue for the exact conventional
+        energy (agreeing with :class:`FullDBMutationEnergy`).
         """
         kk, windows = self._covering_windows(position)
         new_code = int(encode_sequence(new_aa)[0])
