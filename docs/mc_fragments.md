@@ -494,6 +494,43 @@ mutations into or out of glycine (about 6 to 26 kJ/mol on 1r69 — over-counting
 under-counting when mutating a structural glycine away). The `FullDBMutationEnergy` engine now always
 uses the virtual CB and is glycine-exact.
 
+## Throughput (with and without glycine masking)
+
+Three rates matter for a Monte-Carlo design walk: how many trial mutations are scored per second (`dE`,
+the proposal rate), how many accepted moves are applied per second (`commit`), and how many proposals
+the walk explores per second end to end (a proposal is a `dE`, plus a `commit` on acceptance). Measured
+on 1r69 against pc30 (RTX 3080 Ti; CPU = the host NumPy path), at `soft_temp=2.0`, full database:
+
+| engine | device | size | mutations/s ($\Delta E$) | commits/s | walk (explorations/s) |
+|--------|--------|------|-------------------------:|----------:|----------------------:|
+| no masking | GPU | 63 res | 54k | 108 | 1250 |
+| no masking | GPU | 30 res | 63k | 108 | 2100 |
+| `gly_masking` | GPU | 30 res | 47k | 70 (flip 1.9) | 1400 |
+| no masking | CPU | 63 res | 45k | 1.0 | 4 |
+| `gly_masking` | CPU | 63 res | 41k | 0.4 (flip 0.03) | 0.3 |
+
+Reading the table:
+
+* **Mutations per second ($\Delta E$)** are high and roughly device-independent (tens of thousands per
+  second), because a trial reads only the small per-window tables. `gly_masking` adds a second dot
+  product per window (the `Gtouch` term), so it is about 25 percent slower but still ~45k/s.
+* **Commits per second** is the throughput ceiling, since `commit` re-aggregates over the whole database.
+  On the GPU it is ~100/s without masking; `gly_masking` adds the `Gtouch` histogram and runs at ~70/s.
+  A commit that *flips* a position into or out of glycine instead rebuilds the per-offset geometry from
+  the database and is far slower (~1.9/s on the GPU), so a glycine-heavy walk pays for each crossing.
+  On the CPU the histogram is ~100x slower, so commits dominate everything.
+* **Explorations per second** (the walk rate) is commit-bound: on the GPU it is ~1200–2100 proposals/s
+  without masking and ~1400/s with `gly_masking` (the difference is the slower commit plus the occasional
+  glycine-flip rebuild); on the CPU it collapses to a few proposals/s.
+
+(The GPU `gly_masking` rows use a 30-residue structure because the full 63-residue geometry exceeds this
+12 GB card; the matching 30-residue no-masking row is the apples-to-apples comparison. A larger GPU runs
+the full structure. The truncated-vs-full no-masking rows show the size effect on the walk rate.)
+
+For a fast, glycine-exact walk, the recommended setup is the GPU default for sequences without glycine
+design, and `gly_masking=True` on a GPU with enough memory when glycines are designed; freezing glycine
+positions avoids the flip cost entirely.
+
 ## Usage
 
 ```python
