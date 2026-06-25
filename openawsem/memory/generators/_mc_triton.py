@@ -54,6 +54,60 @@ if HAVE_TRITON:
                 tl.store(S0_ptr + base + off * A + a, tl.sum(tl.where(m, e, 0.0)))
                 tl.store(S1_ptr + base + off * A + a, tl.sum(tl.where(m, eE, 0.0)))
 
+    @triton.jit
+    def _whist_split(scores_ptr, GM_ptr, ctx_ptr, S0_ptr, S1o_ptr, S1t_ptr,
+                     N, max_score, inv_temp,
+                     L: tl.constexpr, A: tl.constexpr, BLOCK: tl.constexpr, CDT: tl.constexpr):
+        # Glycine masking: GM is (2L, N) -- row 2*off = Gother(off), row 2*off+1 = Gtouch(off), so the
+        # per-offset reads over consecutive fragments are coalesced.
+        pid = tl.program_id(0)
+        offs = (pid * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
+        mask = offs < N
+        sc = tl.load(scores_ptr + offs, mask=mask, other=0).to(CDT)
+        e = tl.where(mask, tl.exp((sc - max_score) * inv_temp), tl.zeros((BLOCK,), CDT))
+        base = pid * L * A
+        for off in range(L):
+            c = tl.load(ctx_ptr + off * N + offs, mask=mask, other=255).to(tl.int32)
+            go = tl.load(GM_ptr + (2 * off) * N + offs, mask=mask, other=0.0).to(CDT)
+            gt = tl.load(GM_ptr + (2 * off + 1) * N + offs, mask=mask, other=0.0).to(CDT)
+            eo, et = e * go, e * gt
+            for a in tl.static_range(A):
+                m = c == a
+                tl.store(S0_ptr + base + off * A + a, tl.sum(tl.where(m, e, 0.0)))
+                tl.store(S1o_ptr + base + off * A + a, tl.sum(tl.where(m, eo, 0.0)))
+                tl.store(S1t_ptr + base + off * A + a, tl.sum(tl.where(m, et, 0.0)))
+
+
+def rebuild_windows_split(scores, GM, ctx_i8, windows, temp, scale, *, hist_dtype="f32", BLOCK=2048):
+    """Glycine-masked ``S0``/``S1o``/``S1t`` for ``windows`` via the split Triton histogram.
+
+    ``scores`` (W, N) int, ``GM`` (W, N, 2L) float32 (Gother/Gtouch per offset), ``ctx_i8`` (L, N) int8.
+    Returns numpy ``(S0h, S1oh, S1th)`` (each ``(len(windows), L, ALPHA)``) in one host transfer.
+    """
+    import torch
+    dev = scores.device
+    L, N = ctx_i8.shape
+    A = ALPHA
+    cdt = tl.float32 if hist_dtype == "f32" else tl.float64
+    acc_t = torch.float32 if hist_dtype == "f32" else torch.float64
+    inv_temp = 1.0 / temp
+    grid = (triton.cdiv(N, BLOCK),)
+    nb = grid[0]
+    out = [torch.empty((len(windows), L, A), device=dev, dtype=torch.float64) for _ in range(3)]
+    u = [torch.empty((nb, L, A), device=dev, dtype=acc_t) for _ in range(3)]
+    for i, s in enumerate(windows):
+        sc = scores[s].contiguous()
+        gm = GM[s].contiguous()
+        max_score = float(sc.max().item())
+        _whist_split[grid](sc, gm, ctx_i8, u[0], u[1], u[2], N, max_score, inv_temp,
+                           L=L, A=A, BLOCK=BLOCK, CDT=cdt)
+        S0 = u[0].double().sum(0)
+        norm = scale / S0[0].sum()
+        out[0][i] = norm * S0
+        out[1][i] = norm * u[1].double().sum(0)
+        out[2][i] = norm * u[2].double().sum(0)
+    return tuple(o.cpu().numpy() for o in out)
+
 
 def rebuild_windows(scores, E, ctx_i8, windows, temp, scale, *, hist_dtype="f32", BLOCK=2048):
     """Exact full-DB ``S0``/``S1``/``E_wt`` for ``windows`` via the Triton histogram.

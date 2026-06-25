@@ -112,9 +112,12 @@ class MCFragments(FragmentBackend):
         *current* residue (the ``Gother``/``Gtouch`` split) so they switch off when a position becomes
         glycine and on when it stops being one.  This makes glycine-crossing mutations exact (agreeing
         with :class:`FullDBMutationEnergy`).  Default ``False`` keeps the lean, fast behavior, which is
-        exact except for mutations into or out of glycine.  Currently CPU-only (``device=None``); it
-        stores the per-window ``Gother``/``Gtouch`` geometry (~9 GB float32 for pc30), and the GPU
-        (Triton) split is a planned follow-up.
+        exact except for mutations into or out of glycine.  Works on CPU (``device=None``) and GPU
+        (``device='cuda'``); both store the ``Gother``/``Gtouch`` geometry resident (~9 GB float32 for
+        pc30/1r69 -- the GPU path needs a card with enough memory and raises a clear error otherwise).
+        A commit that does not change a position's glycine state is fast; one that flips a position into
+        or out of glycine rebuilds that geometry from the database (a re-read, ~0.5 s on the GPU), so
+        glycine-heavy walks are slower.
     """
 
     def __init__(self, database, *, fragment_length=9, well_width=0.1, soft_temp=2.0,
@@ -236,16 +239,22 @@ class MCMutationEngine:
         self._ctx_T = np.ascontiguousarray(self.valid_ctx.T).astype(np.int32)  # (L, N_frags)
 
         if self.gly_masking:
-            if device is not None:
-                raise NotImplementedError(
-                    "gly_masking is implemented on the CPU path only (device=None) for now; the GPU "
-                    "Gother/Gtouch split is a planned follow-up.  Use device=None here, or "
-                    "FullDBMutationEnergy (now virtual-CB + masking) for the exact glycine-aware energy.")
-            self._gpu = None
-            self.scores = self._build_scores(sequence, N_frags, N_windows)
-            self._build_split_tables(N_frags, N_windows)
-            gm_mb = sum(gm.nbytes for gm in self._GM) / 1e6
-            logger.info("MCMutationEngine ready (gly_masking, cpu) — GM %.0f MB", gm_mb)
+            self.S0 = np.zeros((N_windows, self.L, ALPHA), dtype=np.float64)
+            self.S1o = np.zeros((N_windows, self.L, ALPHA), dtype=np.float64)
+            self.S1t = np.zeros((N_windows, self.L, ALPHA), dtype=np.float64)
+            self.E_wt = np.zeros(N_windows, dtype=np.float64)
+            if device is None:
+                self._gpu = None
+                self.scores = self._build_scores(sequence, N_frags, N_windows)
+                self._build_split_tables(N_windows)            # builds self._GM + fills tables
+                gm_mb = sum(gm.nbytes for gm in self._GM) / 1e6
+                logger.info("MCMutationEngine ready (gly_masking, cpu) — GM %.0f MB", gm_mb)
+            else:
+                self._gpu = _TorchBackend(self, device, sequence)   # GM + scores on GPU
+                self.scores = self._gpu.scores                 # GPU scores (commit updates in place)
+                self._rebuild_split_windows_gpu(range(N_windows))
+                logger.info("MCMutationEngine ready (gly_masking, %s) — GM %.0f MB", device,
+                            self._nbytes(self._gpu.GM) / 1e6)
             return
 
         if device is None:
@@ -431,14 +440,19 @@ class MCMutationEngine:
             return np.zeros((len(self.valid_rows), 2 * self.L), np.float32)
         return (G @ self._selection_matrix(s)).astype(np.float32)            # (N, 2L)
 
-    def _build_split_tables(self, N_frags, N_windows):
-        self._GM = [self._build_GM(s) for s in range(N_windows)]
-        self.S0 = np.zeros((N_windows, self.L, ALPHA), np.float64)
-        self.S1o = np.zeros((N_windows, self.L, ALPHA), np.float64)
-        self.S1t = np.zeros((N_windows, self.L, ALPHA), np.float64)
-        self.E_wt = np.zeros(N_windows, np.float64)
+    def _build_split_tables(self, N_windows):
+        self._GM = [self._build_GM(s) for s in range(N_windows)]   # CPU per-window (N, 2L) float32
         for s in range(N_windows):
             self._rebuild_split_window(s)
+
+    def _rebuild_split_windows_gpu(self, windows):
+        """Rebuild S0/S1o/S1t/E_wt for ``windows`` via the GPU split kernel (one host transfer)."""
+        windows = list(windows)
+        S0h, S1oh, S1th = self._gpu.rebuild_windows_split(windows, self.scale, self.temp)
+        for i, s in enumerate(windows):
+            self.S0[s], self.S1o[s], self.S1t[s] = S0h[i], S1oh[i], S1th[i]
+            old_gly = self.seq[s] == "G"
+            self.E_wt[s] = float(S1oh[i, 0].sum() + (0.0 if old_gly else S1th[i, 0].sum()))
 
     def _rebuild_split_window(self, s):
         sc = self.scores[s].astype(np.float64); sc = sc - sc.max()
@@ -521,6 +535,14 @@ class MCMutationEngine:
         windows = list(windows)
         if self.gly_masking:
             gly_flip = (new_aa == "G") != (self.seq[kk] == "G")
+            if self._gpu is not None:
+                for s in windows:
+                    self._gpu.apply_score_delta(s, kk - s, new_code, old_code)
+                self.seq[kk] = new_aa                     # before rebuilding the (seq-dependent) split
+                if gly_flip:
+                    self._gpu.rebuild_GM_windows(windows)
+                self._rebuild_split_windows_gpu(windows)
+                return
             for s in windows:
                 off = kk - s
                 delta_B = (SCORE_TABLE[new_code, self._ctx_T[off]]
@@ -571,15 +593,30 @@ class _TorchBackend:
         self.device = torch.device(device)
         self.ctx = torch.as_tensor(eng._ctx_T, device=self.device, dtype=torch.long)  # (L, N)
         self.B = torch.as_tensor(np.asarray(SCORE_TABLE), device=self.device, dtype=torch.int32)
-        self.E = self._build_table()                # (W, N) float32 on GPU
-        self.scores = self._build_scores(sequence)  # (W, N) int32 on GPU
-        # Triton block-partial histogram replaces the float64 scatter_add for the exact full-DB
-        # commit (commit_topk=None).  int8 ctx halves its read traffic; cached once.
-        from openawsem.memory.generators import _mc_triton
-        self._triton = (_mc_triton if (eng.triton_commit and _mc_triton.HAVE_TRITON
-                                       and self.device.type == "cuda") else None)
-        self.ctx_i8 = self.ctx.to(torch.int8).contiguous() if self._triton is not None else None
+        self.gly_masking = eng.gly_masking
         self.hist_dtype = eng.hist_dtype
+        from openawsem.memory.generators import _mc_triton
+        if self.gly_masking and not (_mc_triton.HAVE_TRITON and self.device.type == "cuda"):
+            raise RuntimeError("GPU gly_masking needs triton on a CUDA/ROCm device")
+        self._triton = _mc_triton if (eng.triton_commit and _mc_triton.HAVE_TRITON
+                                      and self.device.type == "cuda") else None
+        self.ctx_i8 = self.ctx.to(torch.int8).contiguous() if (self._triton is not None
+                                                               or self.gly_masking) else None
+        self.scores = self._build_scores(sequence)  # (W, N) int32 on GPU
+        if self.gly_masking:
+            # GM[s] = (per-term Gaussians) @ (Gother/Gtouch selection), per window, resident on the GPU.
+            # Size W*N*2L float32 (~9 GB for pc30/1r69) -- needs a GPU with enough memory.
+            try:
+                self.GM = self._build_GM()          # (W, N, 2L) float32 on GPU
+            except torch.cuda.OutOfMemoryError as exc:
+                W, N = len(eng.terms), len(eng.valid_rows)
+                need = W * N * 2 * eng.L * 4 / 1e9
+                raise torch.cuda.OutOfMemoryError(
+                    f"GPU gly_masking needs the (W, N, 2L) Gother/Gtouch geometry resident on the GPU "
+                    f"(~{need:.1f} GB for this structure/database). Use a GPU with more memory, a "
+                    f"smaller/curated database, or run gly_masking on the CPU (device=None).") from exc
+        else:
+            self.E = self._build_table()            # (W, N) float32 on GPU
 
     def _build_table(self):
         torch, eng, dev = self.torch, self.eng, self.device
@@ -618,6 +655,69 @@ class _TorchBackend:
                 E[s, c0:c1] = torch.where(torch.isnan(d), zero, G).sum(dim=1)
         torch.cuda.synchronize()
         return E
+
+    # ----- glycine masking: GM (Gother/Gtouch) geometry on the GPU -------- #
+
+    def _gterms(self, s):
+        """(A, base, R, inv2s) GPU tensors for window ``s``'s structure terms, or None if empty."""
+        torch, eng, dev = self.torch, self.eng, self.device
+        n_seps, npair = eng.idx.dist.shape[1], eng.idx.dist.shape[2]
+        t = eng.terms[s]
+        if len(t["A"]) == 0:
+            return None
+        return (torch.as_tensor(t["A"], device=dev, dtype=torch.long),
+                torch.as_tensor(t["SEPI"] * npair + t["API"], device=dev, dtype=torch.long),
+                torch.as_tensor(t["R"], device=dev, dtype=torch.float32),
+                torch.as_tensor(0.5 / (t["SIG"] ** 2), device=dev, dtype=torch.float32))
+
+    def _fill_GM(self, windows):
+        """Fill ``self.GM[s]`` (2L, N) = ((per-term Gaussians) @ selection-matrix(s)).T for each window
+        in ``windows``.  Each distance chunk is read from the memmap ONCE and reused across all the
+        windows (mirroring ``_build_table``), so init and a glycine-flip rebuild both read the database
+        only once rather than once per window."""
+        torch, eng, dev = self.torch, self.eng, self.device
+        n_seps, npair = eng.idx.dist.shape[1], eng.idx.dist.shape[2]
+        stride = n_seps * npair
+        valid_rows = np.asarray(eng.valid_rows)
+        N = len(valid_rows)
+        windows = list(windows)
+        gt = {s: self._gterms(s) for s in windows}
+        Mts = {s: torch.as_tensor(eng._selection_matrix(s), device=dev, dtype=torch.float32)
+               for s in windows if gt[s] is not None}
+        zero = torch.zeros((), device=dev)
+        for c0 in range(0, N, eng.gpu_chunk):
+            c1 = min(c0 + eng.gpu_chunk, N)
+            rows = valid_rows[c0:c1]
+            lo, hi = int(rows.min()), int(rows.max()) + eng.L
+            dspan = torch.as_tensor(np.array(eng.idx.dist[lo:hi]).reshape(-1), device=dev)
+            local = torch.as_tensor(rows - lo, device=dev, dtype=torch.long)
+            for s in windows:
+                g = gt[s]
+                if g is None:
+                    self.GM[s][:, c0:c1] = 0.0; continue
+                A, base, R, inv2s = g
+                lin = (local[:, None] + A[None, :]) * stride + base[None, :]
+                d = dspan[lin] * 0.1
+                G = torch.where(torch.isnan(d), zero,
+                                torch.exp(-((R[None, :] - d) ** 2) * inv2s[None, :]))
+                self.GM[s][:, c0:c1] = (G @ Mts[s]).T       # (2L, chunk)
+        torch.cuda.synchronize()
+
+    def _build_GM(self):
+        N, W = len(self.eng.valid_rows), len(self.eng.terms)
+        self.GM = self.torch.empty((W, 2 * self.eng.L, N), device=self.device, dtype=self.torch.float32)
+        self._fill_GM(range(W))
+        return self.GM
+
+    def rebuild_GM_windows(self, windows):
+        """Rebuild GM for windows whose glycine pattern flipped (the geometry is sequence-independent
+        per glycine pattern, so only a flip needs this)."""
+        self._fill_GM(windows)
+
+    def rebuild_windows_split(self, windows, scale, temp):
+        """S0/S1o/S1t host arrays for ``windows`` via the split Triton histogram, ONE host transfer."""
+        return self._triton.rebuild_windows_split(self.scores, self.GM, self.ctx_i8,
+                                                  list(windows), temp, scale, hist_dtype=self.hist_dtype)
 
     def _build_scores(self, sequence):
         torch, eng, dev = self.torch, self.eng, self.device
