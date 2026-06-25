@@ -106,12 +106,22 @@ class MCFragments(FragmentBackend):
         float32 and reduces into float64 (``dE`` within ~1e-5 kJ/mol of the float64 scatter, well
         inside the mutation tolerance); ``'f64'`` accumulates entirely in float64 (bit-exact
         ``dE == E_after − E_before``, ~6× slower than ``'f32'`` but still faster than the scatter).
+    gly_masking:
+        If ``True``, handle glycine correctly under sequence mutation: a virtual CB (built in Angstrom
+        from the backbone) is placed at structural glycines, and the CB-pair wells are masked by the
+        *current* residue (the ``Gother``/``Gtouch`` split) so they switch off when a position becomes
+        glycine and on when it stops being one.  This makes glycine-crossing mutations exact (agreeing
+        with :class:`FullDBMutationEnergy`).  Default ``False`` keeps the lean, fast behavior, which is
+        exact except for mutations into or out of glycine.  Currently CPU-only (``device=None``); it
+        stores the per-window ``Gother``/``Gtouch`` geometry (~9 GB float32 for pc30), and the GPU
+        (Triton) split is a planned follow-up.
     """
 
     def __init__(self, database, *, fragment_length=9, well_width=0.1, soft_temp=2.0,
                  n_mem=20, min_seq_sep=3, max_seq_sep=9, k_fm=0.04184, chunk_size=50_000,
                  soft_pool=80, soft_seed_word=2, device=None, gpu_chunk=400_000,
-                 commit_topk=None, triton_commit=True, hist_dtype="f32"):
+                 commit_topk=None, triton_commit=True, hist_dtype="f32",
+                 gly_masking=False):
         self.database = str(database)
         self.fragment_length = int(fragment_length)
         self.well_width = float(well_width)
@@ -128,6 +138,7 @@ class MCFragments(FragmentBackend):
         self.commit_topk = None if commit_topk is None else int(commit_topk)
         self.triton_commit = bool(triton_commit)
         self.hist_dtype = str(hist_dtype)
+        self.gly_masking = bool(gly_masking)
         self._db_cache: dict = {}
 
     @property
@@ -207,8 +218,12 @@ class MCMutationEngine:
         self.commit_topk = gen.commit_topk
         self.triton_commit = gen.triton_commit
         self.hist_dtype = gen.hist_dtype
+        self.gly_masking = gen.gly_masking
 
-        coords = FragmentMemory._structure_coords(structure)
+        # With glycine masking the structure gets a virtual CB at glycine positions (built in Angstrom)
+        # so a glycine that mutates to a non-glycine has a CB to place wells on; the masking then keeps
+        # the wild-type energy unchanged by dropping CB terms wherever the current residue is glycine.
+        coords = FragmentMemory._structure_coords(structure, virtual_cb=self.gly_masking)
         n = len(sequence)
         self.terms = [self._window_terms(s, coords) for s in range(n - self.L + 1)]
 
@@ -219,6 +234,19 @@ class MCMutationEngine:
         # Transpose ctx to (L, N_frags) so ctx_T[off] is a contiguous row.
         # int32 is np.intp-compatible on 64-bit systems and halves memory vs int64.
         self._ctx_T = np.ascontiguousarray(self.valid_ctx.T).astype(np.int32)  # (L, N_frags)
+
+        if self.gly_masking:
+            if device is not None:
+                raise NotImplementedError(
+                    "gly_masking is implemented on the CPU path only (device=None) for now; the GPU "
+                    "Gother/Gtouch split is a planned follow-up.  Use device=None here, or "
+                    "FullDBMutationEnergy (now virtual-CB + masking) for the exact glycine-aware energy.")
+            self._gpu = None
+            self.scores = self._build_scores(sequence, N_frags, N_windows)
+            self._build_split_tables(N_frags, N_windows)
+            gm_mb = sum(gm.nbytes for gm in self._GM) / 1e6
+            logger.info("MCMutationEngine ready (gly_masking, cpu) — GM %.0f MB", gm_mb)
+            return
 
         if device is None:
             self._gpu = None
@@ -261,7 +289,7 @@ class MCMutationEngine:
         sep_index = self.idx._sep_index
         apidx = {p: ATOM_PAIRS.index(p) for p in _CACB}
 
-        A, SEPI, API, R, SIG = [], [], [], [], []
+        A, SEPI, API, R, SIG, BOFF, NEEDA, NEEDB = [], [], [], [], [], [], [], []
         for a in range(self.L):
             for b in range(a + 1, self.L):
                 sep = b - a
@@ -277,9 +305,13 @@ class MCMutationEngine:
                     A.append(a); SEPI.append(sep_index[sep]); API.append(apidx[(X, Y)])
                     R.append(float(np.linalg.norm(np.asarray(ci) - np.asarray(cj))))
                     SIG.append(sig)
+                    BOFF.append(b); NEEDA.append(X == "CB"); NEEDB.append(Y == "CB")
+        # A is the per-term A-end offset (== AOFF); BOFF the B-end offset; NEEDA/NEEDB flag a CB end
+        # (used by glycine masking to drop CB-touching terms where the current residue is glycine).
         return {k: np.array(v, dtype=dt) for (k, v), dt in zip(
-            [("A", A), ("SEPI", SEPI), ("API", API), ("R", R), ("SIG", SIG)],
-            [np.int32, np.int32, np.int32, np.float32, np.float32])}
+            [("A", A), ("SEPI", SEPI), ("API", API), ("R", R), ("SIG", SIG),
+             ("BOFF", BOFF), ("NEEDA", NEEDA), ("NEEDB", NEEDB)],
+            [np.int32, np.int32, np.int32, np.float32, np.float32, np.int32, np.bool_, np.bool_])}
 
     # ----- E_table precompute (CPU) -------------------------------------- #
 
@@ -356,6 +388,71 @@ class MCMutationEngine:
         # E_wt = Σ_f w_f·E_f = Σ_a S1[s,0,a]; reuse S1 instead of a second O(N_db) dot.
         self.E_wt[s] = float(self.S1[s, 0].sum())
 
+    # ----- glycine masking: Gother/Gtouch split (CPU) -------------------- #
+
+    def _pool_terms(self, s, rows):
+        """(M, T) float32 per-term Gaussians for window ``s`` (not summed over terms)."""
+        t = self.terms[s]
+        if len(t["A"]) == 0 or len(rows) == 0:
+            return np.zeros((len(rows), len(t["A"])), dtype=np.float32)
+        d = (self.idx.dist[rows[:, None] + t["A"][None, :],
+                           t["SEPI"][None, :], t["API"][None, :]] * np.float32(0.1))
+        R, inv2s = t["R"][None, :], 0.5 / t["SIG"][None, :] ** 2
+        G = np.exp(-((R - d) ** 2) * inv2s, dtype=np.float32)
+        G[np.isnan(d)] = 0.0
+        return G
+
+    def _selection_matrix(self, s):
+        """(T, 2L) Gother/Gtouch columns per offset from the CURRENT sequence's glycine pattern.
+
+        Column ``2*off`` selects terms not needing a CB at offset ``off`` (kept unless the term's other
+        end is a current glycine); column ``2*off+1`` selects terms needing a CB at ``off`` (pre-masked
+        by the other end's glycine state).  ``G @ M`` gives the per-offset Gother/Gtouch per fragment.
+        """
+        t = self.terms[s]; T = len(t["A"]); L = self.L
+        if T == 0:
+            return np.zeros((0, 2 * L), np.float32)
+        AOFF, BOFF, NEEDA, NEEDB = t["A"], t["BOFF"], t["NEEDA"], t["NEEDB"]
+        glyA = np.fromiter((self.seq[s + o] == "G" for o in AOFF), bool, T)
+        glyB = np.fromiter((self.seq[s + o] == "G" for o in BOFF), bool, T)
+        include = ~((NEEDA & glyA) | (NEEDB & glyB))
+        M = np.zeros((T, 2 * L), np.float32)
+        for off in range(L):
+            at = NEEDA & (AOFF == off); bt = NEEDB & (BOFF == off); touch = at | bt
+            other_ok = np.ones(T, bool)
+            other_ok[at] = ~(NEEDB[at] & glyB[at]); other_ok[bt] = ~(NEEDA[bt] & glyA[bt])
+            M[include & ~touch, 2 * off] = 1.0
+            M[touch & other_ok, 2 * off + 1] = 1.0
+        return M
+
+    def _build_GM(self, s):
+        G = self._pool_terms(s, self.valid_rows)
+        if G.shape[1] == 0:
+            return np.zeros((len(self.valid_rows), 2 * self.L), np.float32)
+        return (G @ self._selection_matrix(s)).astype(np.float32)            # (N, 2L)
+
+    def _build_split_tables(self, N_frags, N_windows):
+        self._GM = [self._build_GM(s) for s in range(N_windows)]
+        self.S0 = np.zeros((N_windows, self.L, ALPHA), np.float64)
+        self.S1o = np.zeros((N_windows, self.L, ALPHA), np.float64)
+        self.S1t = np.zeros((N_windows, self.L, ALPHA), np.float64)
+        self.E_wt = np.zeros(N_windows, np.float64)
+        for s in range(N_windows):
+            self._rebuild_split_window(s)
+
+    def _rebuild_split_window(self, s):
+        sc = self.scores[s].astype(np.float64); sc = sc - sc.max()
+        e = np.exp(sc / self.temp)
+        w = (self.scale / e.sum()) * e                                       # weights sum to scale
+        GM = self._GM[s]
+        for off in range(self.L):
+            aa = self._ctx_T[off]
+            self.S0[s, off] = np.bincount(aa, weights=w, minlength=ALPHA)[:ALPHA]
+            self.S1o[s, off] = np.bincount(aa, weights=w * GM[:, 2 * off], minlength=ALPHA)[:ALPHA]
+            self.S1t[s, off] = np.bincount(aa, weights=w * GM[:, 2 * off + 1], minlength=ALPHA)[:ALPHA]
+        old_gly = self.seq[s] == "G"
+        self.E_wt[s] = float(self.S1o[s, 0].sum() + (0.0 if old_gly else self.S1t[s, 0].sum()))
+
     def _rebuild_windows_gpu(self, windows):
         """Rebuild a list of windows on the GPU with a single host transfer, then store them."""
         windows = list(windows)
@@ -381,8 +478,11 @@ class MCMutationEngine:
         O(ALPHA × L) — one 21-element dot product per affected window.  Always runs on the
         host (the per-call work is too small to benefit from a GPU launch).
 
-        Note: GLY mutations are not corrected for the missing CB atom in this prototype.
-        Non-GLY mutations agree with :class:`FullDBMutationEnergy` to float32 precision.
+        Glycine: with ``gly_masking=True`` (CPU) glycine-crossing mutations are exact (virtual CB +
+        query-based masking).  With the default ``gly_masking=False`` they are approximate -- CB wells
+        follow the fixed structure, not the current sequence -- so mutating *to* glycine over-counts and
+        mutating a structural glycine *away* under-counts (~6-26 kJ/mol on 1r69); all other mutations
+        agree with :class:`FullDBMutationEnergy` to float32 precision.
         """
         kk, windows = self._covering_windows(position)
         new_code = int(encode_sequence(new_aa)[0])
@@ -392,6 +492,16 @@ class MCMutationEngine:
         g = np.exp((SCORE_TABLE[new_code] - SCORE_TABLE[old_code]).astype(np.float64)
                    / self.temp)[:ALPHA]
         de = 0.0
+        if self.gly_masking:
+            new_gly = new_aa == "G"
+            for s in windows:
+                off = kk - s
+                denom = float(g @ self.S0[s, off])
+                if denom == 0.0:
+                    continue
+                num = float(g @ self.S1o[s, off]) + (0.0 if new_gly else float(g @ self.S1t[s, off]))
+                de += self.scale * num / denom - self.E_wt[s]
+            return float(-self.k_fm * de)
         for s in windows:
             off = kk - s
             denom = float(g @ self.S0[s, off])
@@ -409,6 +519,20 @@ class MCMutationEngine:
         if new_code == old_code:
             return
         windows = list(windows)
+        if self.gly_masking:
+            gly_flip = (new_aa == "G") != (self.seq[kk] == "G")
+            for s in windows:
+                off = kk - s
+                delta_B = (SCORE_TABLE[new_code, self._ctx_T[off]]
+                           - SCORE_TABLE[old_code, self._ctx_T[off]])
+                self.scores[s] = np.clip(self.scores[s].astype(np.int32) + delta_B,
+                                         -32768, 32767).astype(np.int16)
+            self.seq[kk] = new_aa                         # update before rebuilding the glycine split
+            for s in windows:
+                if gly_flip:
+                    self._GM[s] = self._build_GM(s)       # glycine pattern changed -> rebuild the split
+                self._rebuild_split_window(s)
+            return
         if self._gpu is not None:
             for s in windows:
                 self._gpu.apply_score_delta(s, kk - s, new_code, old_code)

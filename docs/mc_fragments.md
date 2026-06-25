@@ -461,14 +461,34 @@ energy table being held in float32. The energy table is kept in float32 delibera
 size and the GPU memory traffic, while the float64 accumulation is confined to the reductions where it
 matters.
 
-## Glycine masking
+## Glycine masking and the virtual CB
 
-The conventional fragment memory drops CB-containing pairs at glycine positions and reapplies the mask
-as the sequence changes. `mc_fragments` excludes structural glycines, which lack a CB in the fixed
-target, but does not reapply the mask when a mutation turns a position into or out of glycine.
-Non-glycine mutations agree with the reference `FullDBMutationEnergy` to float32 precision; glycine
-mutations carry an approximation of about 1 kJ/mol. For most design walks this is negligible, but it
-is the one place the energy is not exact.
+Glycine has no sidechain, so a residue carries CB-based wells only while it is non-glycine. On a fixed
+structure under sequence design, which positions get CB wells must follow the **current (design)
+residue**, not the original structure: a position mutated to glycine must lose its CB wells, and a
+structural glycine mutated to a non-glycine must gain them with a sensible CB geometry. The correct
+model has two parts that work together:
+
+- a **virtual CB** at structural glycine positions, built from the backbone N/CA/C with the same ideal
+  construction as the fragment database (`fragdb.geometry.virtual_cb`), so a glycine that becomes
+  non-glycine has a CB to place wells on. The construction mixes a length-squared cross product with
+  length terms, so it is calibrated for Angstrom and must be evaluated in Angstrom (computing it in nm
+  gives a CB about 1 A off);
+- **query-based CB masking**, dropping the CB-touching terms wherever the current residue is glycine
+  (the `Gother`/`Gtouch` split already implemented in `FullDBMutationEnergy`).
+
+Together these leave the wild-type energy unchanged (glycine CB stays masked) and make every
+glycine-crossing mutation exact.
+
+`mc_fragments` exposes this through the `gly_masking` option (default `False`). With `gly_masking=True`
+the engine builds the virtual CB and carries the `Gother`/`Gtouch` split, so glycine-crossing mutations
+agree with `FullDBMutationEnergy` to float precision (validated against an independent full-database
+reference in `scratch/20260625_gly_fix/`); the wild-type energy is unchanged. It is CPU-only for now
+(`device=None`) and stores the per-window split geometry (~9 GB float32 for pc30); the GPU (Triton)
+split is a planned follow-up. The default `gly_masking=False` keeps the lean, fast path, which masks CB
+only by the fixed structure and so is exact except for mutations into or out of glycine (about 6 to
+26 kJ/mol on 1r69 — over-counting when mutating to glycine, under-counting when mutating a structural
+glycine away). The `FullDBMutationEnergy` engine now always uses the virtual CB and is glycine-exact.
 
 ## Usage
 

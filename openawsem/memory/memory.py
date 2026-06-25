@@ -119,9 +119,16 @@ class FragmentMemory(pd.DataFrame):
         raise NotImplementedError
 
     @staticmethod
-    def _structure_coords(structure) -> dict:
+    def _structure_coords(structure, *, virtual_cb=False) -> dict:
         """``{(name, resid): xyz_nm}`` for CA/CB, from a dict, ``OpenMMAWSEMSystem``,
-        molscene ``Scene`` or a structure file path."""
+        molscene ``Scene`` or a structure file path.
+
+        ``virtual_cb=True`` fills a virtual CB (built in Angstrom from backbone N/CA/C) at residues
+        with no observed CB (glycine), matching the fragment database.  Use it ONLY with an engine that
+        masks CB by the current sequence (e.g. :class:`FullDBMutationEnergy`); without that masking it
+        would add CB wells to glycines.  Only the molscene/file path can build it (needs N/CA/C); a
+        coords dict or an ``OpenMMAWSEMSystem`` (no backbone N/C beads) is returned unchanged.
+        """
         if isinstance(structure, dict):
             return structure
         if hasattr(structure, "ca") and hasattr(structure, "cb") and hasattr(structure, "resi"):
@@ -140,7 +147,7 @@ class FragmentMemory(pd.DataFrame):
             return out
         from openawsem.memory import _molscene
         scene = _molscene.load_structure(structure) if isinstance(structure, (str, Path)) else structure
-        atoms = _molscene.cacb_nm(scene)
+        atoms = _molscene.cacb_with_virtual_cb(scene) if virtual_cb else _molscene.cacb_nm(scene)
         return {(n, int(r)): np.array([x, y, z], dtype=float) for n, r, x, y, z in
                 zip(atoms["name"], atoms["resid"], atoms["x"], atoms["y"], atoms["z"])}
 

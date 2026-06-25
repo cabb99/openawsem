@@ -87,7 +87,9 @@ class MutationEnergy:
         self.seed_word = int(ldb.soft_seed_word)
         self.sep_index = idx._sep_index
         self.apidx = {p: ATOM_PAIRS.index(p) for p in _CACB}
-        coords = FragmentMemory._structure_coords(structure)
+        # These engines mask CB by the current sequence, so a virtual CB at glycine positions is
+        # correct (and needed for a structural glycine that mutates to a non-glycine).
+        coords = FragmentMemory._structure_coords(structure, virtual_cb=True)
         self.terms = [self._window_terms(s, coords) for s in range(len(sequence) - self.L + 1)]
     def _window(self, seq, s):
         return seq[s:s + self.L]
@@ -414,7 +416,9 @@ class MlMutationEnergy(MutationEnergy):
         self.method = "ml"
         self.sep_index = idx._sep_index
         self.apidx = {p: ATOM_PAIRS.index(p) for p in _CACB}
-        coords = FragmentMemory._structure_coords(structure)
+        # These engines mask CB by the current sequence, so a virtual CB at glycine positions is
+        # correct (and needed for a structural glycine that mutates to a non-glycine).
+        coords = FragmentMemory._structure_coords(structure, virtual_cb=True)
         self.terms = [self._window_terms(s, coords) for s in range(len(sequence) - self.L + 1)]
         self.E_wt = [self._window_energy(s, self._window(self.seq, s)) for s in range(len(self.terms))]
 
