@@ -494,6 +494,31 @@ mutations into or out of glycine (about 6 to 26 kJ/mol on 1r69 — over-counting
 under-counting when mutating a structural glycine away). The `FullDBMutationEnergy` engine now always
 uses the virtual CB and is glycine-exact.
 
+### Why glycine masking needs more memory, and why it does not grow with the number of glycines
+
+The default engine stores one number per (window, fragment): the full geometric overlap $G_{wf}$.
+Glycine masking stores $2L = 18$ instead — for each of the $L$ positions in the window, the contribution
+of the CB-touching terms at that position ($\text{Gtouch}$) and everything else ($\text{Gother}$). That
+per-position split is exactly what lets a mutation switch the CB wells at any one position on or off, so
+the geometry grows by a factor of $2L$ (about 0.5 GB to 9 GB on pc30/1r69). It is two numbers per
+position, not one, hence $2L$ rather than $L$.
+
+Crucially this does **not** grow with the number of glycines. Two, three, or more glycines in the same
+window are handled by inclusion-exclusion over the touched positions — the selection that builds the
+split subtracts the CB-CB term two glycines share — using the same $2L$-wide table; there is no
+combinatorial "one table per glycine pattern". The database fragments are also unchanged: masking happens
+on the **target** side (which of the target's CB wells count), not by retrieving a different set of
+fragments per pattern. The only catch is that the stored split is specific to the current sequence's
+glycine pattern, so a mutation that flips a position into or out of glycine rebuilds the split for the
+affected windows (the slow flip commit).
+
+This is a memory-vs-speed choice. Storing the split keeps commits fast (the geometry is resident) at
+$2L\times$ the memory; the alternative is to keep only the default $1\times$ table and recompute the
+glycine correction from the database on demand (or store the split only for the windows that currently
+contain a glycine), which removes the large table — fitting any GPU — at the cost of slower commits on
+glycine-containing windows. Which is better depends on how dense glycines are and how often they mutate;
+the current implementation stores the split and recomputes only on a glycine flip.
+
 ## Throughput (with and without glycine masking)
 
 Three rates matter for a Monte-Carlo design walk: how many trial mutations are scored per second (`dE`,
