@@ -9,7 +9,7 @@
       "kind": "Norm",
       "label": "L2-normalize",
       "width": 180,
-      "out": "z in R^180"
+      "out": "180 numbers"
     }
   ],
   "v1  (BLOSUM-MLP, trained)": [
@@ -50,7 +50,7 @@
       "kind": "Norm",
       "label": "L2-normalize",
       "width": 64,
-      "out": "z in R^64"
+      "out": "64 numbers"
     }
   ],
   "v3  (ESM-2 context + trained head)": [
@@ -101,7 +101,7 @@
       "kind": "Norm",
       "label": "L2-normalize",
       "width": 64,
-      "out": "z in R^64"
+      "out": "64 numbers"
     }
   ]
 }

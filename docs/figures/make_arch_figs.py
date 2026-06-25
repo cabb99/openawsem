@@ -71,19 +71,19 @@ def build_specs():
     specs = {
         "v0  (BLOSUM-cosine, no training)": [
             {"kind": "Input", "label": "9-mer\\nBLOSUM62 rows", "width": 180},
-            {"kind": "Norm", "label": "L2-normalize", "width": 180, "out": "z in R^180"},
+            {"kind": "Norm", "label": "L2-normalize", "width": 180, "out": "180 numbers"},
         ],
         "v1  (BLOSUM-MLP, trained)": [
             {"kind": "Input", "label": "9-mer\\nBLOSUM62 rows", "width": 180},
             *head_blocks(v1, 180),
-            {"kind": "Norm", "label": "L2-normalize", "width": 64, "out": "z in R^64"},
+            {"kind": "Norm", "label": "L2-normalize", "width": 64, "out": "64 numbers"},
         ],
         "v3  (ESM-2 context + trained head)": [
             {"kind": "Input", "label": "chain\\nsequence", "width": 0},
             {"kind": "PLM", "label": "ESM-2\\n(frozen)", "width": 640},
             {"kind": "Pool", "label": "mean-pool\\n9-mer", "width": 640},
             *head_blocks(v3, 640),
-            {"kind": "Norm", "label": "L2-normalize", "width": 64, "out": "z in R^64"},
+            {"kind": "Norm", "label": "L2-normalize", "width": 64, "out": "64 numbers"},
         ],
     }
     return specs

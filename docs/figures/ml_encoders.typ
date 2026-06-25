@@ -7,7 +7,7 @@
 #v(2pt)
 #draw-network((
     (type: "convres", name: "L0", label: "9-mer\nBLOSUM62 rows\n(180)", fill: rgb("#9aa7b8"), offset: 2.0, height: 8.3, depth: 5.8, width: 1.6),
-    (type: "convres", name: "L1", label: "L2-normalize\nz in R^180", fill: rgb("#7bc47f"), offset: 2.0, height: 8.3, depth: 5.8, width: 1.6),
+    (type: "convres", name: "L1", label: "L2-normalize\n180 numbers", fill: rgb("#7bc47f"), offset: 2.0, height: 8.3, depth: 5.8, width: 1.6),
 ), palette: "warm", scale: 90%)
 #v(16pt)
 
@@ -18,7 +18,7 @@
     (type: "convres", name: "L1", label: "mix\n(256)", fill: rgb("#6fa8dc"), offset: 2.0, height: 9.9, depth: 6.9, width: 1.6),
     (type: "convres", name: "L2", label: "mix\n(256)", fill: rgb("#6fa8dc"), offset: 2.0, height: 9.9, depth: 6.9, width: 1.6),
     (type: "convres", name: "L3", label: "compress\n(64)", fill: rgb("#3d6fb4"), offset: 2.0, height: 5.0, depth: 3.5, width: 1.6),
-    (type: "convres", name: "L4", label: "L2-normalize\nz in R^64", fill: rgb("#7bc47f"), offset: 2.0, height: 5.0, depth: 3.5, width: 1.6),
+    (type: "convres", name: "L4", label: "L2-normalize\n64 numbers", fill: rgb("#7bc47f"), offset: 2.0, height: 5.0, depth: 3.5, width: 1.6),
 ), palette: "warm", scale: 90%)
 #v(16pt)
 
@@ -31,6 +31,6 @@
     (type: "convres", name: "L3", label: "mix\n(256)", fill: rgb("#6fa8dc"), offset: 2.0, height: 9.9, depth: 6.9, width: 1.6),
     (type: "convres", name: "L4", label: "mix\n(256)", fill: rgb("#6fa8dc"), offset: 2.0, height: 9.9, depth: 6.9, width: 1.6),
     (type: "convres", name: "L5", label: "compress\n(64)", fill: rgb("#3d6fb4"), offset: 2.0, height: 5.0, depth: 3.5, width: 1.6),
-    (type: "convres", name: "L6", label: "L2-normalize\nz in R^64", fill: rgb("#7bc47f"), offset: 2.0, height: 5.0, depth: 3.5, width: 1.6),
+    (type: "convres", name: "L6", label: "L2-normalize\n64 numbers", fill: rgb("#7bc47f"), offset: 2.0, height: 5.0, depth: 3.5, width: 1.6),
 ), palette: "warm", scale: 90%)
 #v(16pt)

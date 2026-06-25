@@ -30,17 +30,18 @@
   step([1], "A short piece", [Slide a 9-residue window along the target protein — one little
         peptide at a time \ \ #text(font: "DejaVu Sans Mono", size: 8pt)[…K T A Y I L K Q R…]], GREY),
   arrow,
-  step([2], "Make a fingerprint", [An #emph[encoder] turns the piece into a point in space (a short
-        list of numbers). Pieces that should fold alike land close together.], BLUE),
+  step([2], "Make an embedding", [An #emph[encoder] turns the piece into a point in space (a short
+        list of numbers, the #emph[embedding]). Pieces that should fold alike land close together.], BLUE),
   arrow,
-  step([3], "Find look-alikes", [Search ~2 million stored fragments for the closest fingerprints —
+  step([3], "Find look-alikes", [Search ~2 million stored fragments for the closest embeddings —
         the #emph[nearest neighbours].], BLUE),
   arrow,
   step([4], "Borrow geometry", [Read those neighbours' measured atom-to-atom distances — how their
         backbone is actually shaped.], GREEN),
   arrow,
-  step([5], "Add gentle springs", [Turn each distance into a soft spring that nudges the structure
-        toward that local shape. All windows together = the folding guide.], GREEN),
+  step([5], "Add soft preferences", [Turn each distance into a soft distance preference (a Gaussian
+        well) that nudges the structure toward that local shape. All windows together = the folding
+        guide.], GREEN),
 )
 
 #v(16pt)
@@ -48,12 +49,14 @@
   #text(weight: "bold")[What changes between versions — and why it matters]
   #v(4pt)
   #grid(columns: (1fr, 1fr), column-gutter: 14pt,
-    [#text(weight: "bold", fill: rgb("#3d6fb4"))[v0 — match by sequence.] The fingerprint is just
-      the window's amino-acid letters (a BLOSUM score). It finds fragments with a #emph[similar
-      sequence]. Simple and fast, but two pieces with similar sequence can fold differently.],
-    [#text(weight: "bold", fill: rgb("#c0712a"))[v3 — match by shape.] The fingerprint comes from a
-      frozen AI protein language model (ESM-2) that has read the #emph[whole] chain, so it can spot
-      fragments with a #emph[similar shape] even when their sequences look nothing alike. This is
-      why v3 folds hard proteins that v0 gets wrong.],
+    [#text(weight: "bold", fill: rgb("#3d6fb4"))[v0 — describe by sequence.] The embedding is built
+      only from the window's amino-acid letters (a BLOSUM score). It finds fragments with a
+      #emph[similar sequence]. Simple and fast, but two pieces with similar sequence can fold
+      differently.],
+    [#text(weight: "bold", fill: rgb("#c0712a"))[v3 — describe with context.] The embedding starts
+      from a frozen protein language model (ESM-2) that has read the #emph[whole] chain, then a
+      trained head reshapes it so that #emph[similar embedding] means #emph[similar local shape] —
+      even when the sequences look nothing alike. This is why v3 folds hard proteins that v0 gets
+      wrong.],
   )
 ]
