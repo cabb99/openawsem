@@ -123,6 +123,12 @@ class MCFragments(FragmentBackend):
         for pc30/1r69 -- the GPU path needs a card with enough memory and raises a clear error
         otherwise).  A commit that does not change a position's glycine state is fast; one that flips a
         position into or out of glycine rebuilds that geometry from the database (~0.5 s on the GPU).
+
+        Neither is strictly more correct (masking reproduces conventional AWSEM; the default is the
+        database's virtual-CB convention).  For Monte-Carlo sequence design the default is usually
+        preferable: it needs no large table (fits any GPU, faster) and treats glycine as an ordinary
+        residue, whereas masking makes leaving glycine artificially favorable (it regains the masked-off
+        CB contacts), biasing the walk to flee glycine.  Use ``True`` for an exact conventional energy.
     """
 
     def __init__(self, database, *, fragment_length=9, well_width=0.1, soft_temp=2.0,

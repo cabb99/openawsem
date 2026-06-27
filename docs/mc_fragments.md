@@ -517,6 +517,38 @@ contain a glycine), which removes the large table — fitting any GPU — at the
 glycine-containing windows. Which is better depends on how dense glycines are and how often they mutate;
 the current implementation stores the split and recomputes only on a glycine flip.
 
+### Virtual CB vs masking: how much they differ, and which to prefer
+
+The two models give the **same** $\Delta E$ for any mutation whose window contains no glycine. Where a
+glycine is in the window they differ, but the per-mutation effect is smaller than the wild-type offset
+suggests. On 1r69/pc30, $|\Delta E_\text{default} - \Delta E_\text{masked}|$ over random mutations is:
+$0$ when no glycine is in the window; a $\sim 2.5$ kJ/mol scatter ($\approx k_BT$) for non-crossing
+mutations near a glycine (the two engines stay strongly correlated, tracking the same landscape); and a
+systematic $\sim 20\text{–}30$ kJ/mol only for the actual glycine crossings (mutating into or out of
+glycine), which are a minority of moves.
+
+The qualitative difference is in how glycine behaves as a residue. Averaging $\Delta E(X\to Y)$ over the
+structure's positions, glycine's anomaly relative to the other amino acids (z-score of its row/column)
+is:
+
+| model | mean $\Delta E$ to glycine (z) | mean $\Delta E$ from glycine (z) |
+|-------|-------------------------------:|---------------------------------:|
+| virtual CB (default) | 31.7 (+1.7) | 25.9 (+0.9) |
+| masking | 49.8 (+3.3) | 1.9 (−0.4) |
+
+Mutating *to* glycine costs more than average in both models, partly for a legitimate reason — glycine
+is sequence-dissimilar to most residues (proline shows the same elevated "to" cost, and it is not
+masked). The decisive difference is the *from*-glycine direction: with masking, leaving glycine becomes
+**favorable** (it regains the CB contacts the mask had removed), so the walk is biased to flee glycine
+for a purely geometric reason. The virtual-CB model has no such asymmetry — glycine is mildly costly to
+enter and to leave alike, like any sequence-distinct residue.
+
+Neither model is "more correct" in general (masking reproduces the conventional AWSEM fragment memory;
+virtual CB is the database's own convention). For **Monte-Carlo traversal of sequence space**, the
+virtual-CB default is the more amenable choice: it needs no $2L\times$ table (so it fits any GPU and is
+faster), and it does not inject the geometric "flee glycine" bias. Use `gly_masking=True` when an exact
+match to the conventional masked energy is required.
+
 ## Throughput (with and without glycine masking)
 
 Three rates matter for a Monte-Carlo design walk: how many trial mutations are scored per second (`dE`,
