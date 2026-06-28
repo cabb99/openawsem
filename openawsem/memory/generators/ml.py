@@ -25,7 +25,8 @@ import pandas as pd
 
 from openawsem.memory.memory import MemoryWells, WELLS_COLUMNS
 from openawsem.memory.generators.base import FragmentBackend, Registry
-from openawsem.memory.generators.local_db import accumulate_soft_wells, _CACB_PAIRS
+from openawsem.memory.generators.local_db import (accumulate_soft_wells, emit_mixture_wells,
+                                                  _CACB_PAIRS)
 
 logger = logging.getLogger(__name__)
 
@@ -195,33 +196,110 @@ class Ml(FragmentBackend):
         return res
 
     def _accumulate_backoff(self, cols, record, start, base):
-        """One marginal Gaussian well per pair/channel for a low-coverage window."""
+        """Marginal wells for a low-coverage window: the K=1, context-free case of a predicted
+        mixture (so it shares :func:`emit_mixture_wells`'s GLY/CB drop and resid bookkeeping)."""
         marg = self._marginal
         if marg is None:
             return
+        from openawsem.memory.ml.fingerprint import in_window_pairs
         mean, std, aa_index, ap_index, sep_index = marg
         L = self.fragment_length
-        for a in range(L):
-            for b in range(a + 1, L):
-                sep = b - a
-                if not (self.min_seq_sep <= sep <= self.max_seq_sep) or sep not in sep_index:
+        pa, pb, ps = in_window_pairs(L, min_sep=self.min_seq_sep, max_sep=self.max_seq_sep)
+        P, C = len(pa), len(self._ATOM_PAIRS)
+        pi = np.ones((P, C, 1)); mu = np.full((P, C, 1), np.nan); sg = np.full((P, C, 1), np.nan)
+        for p, (a, b, sep) in enumerate(zip(pa, pb, ps)):
+            si = sep_index.get(int(sep))
+            ci, cj = aa_index.get(record[start + a], -1), aa_index.get(record[start + b], -1)
+            if si is None or ci < 0 or cj < 0:
+                continue
+            for c, (name_i, name_j) in enumerate(self._ATOM_PAIRS):
+                ap = ap_index.get(f"{name_i}-{name_j}")
+                if ap is None:
                     continue
-                si = sep_index[sep]
-                ci, cj = aa_index.get(record[start + a], -1), aa_index.get(record[start + b], -1)
-                if ci < 0 or cj < 0:
-                    continue
-                resid_i, resid_j = base + start + a + 1, base + start + b + 1
-                gly_i, gly_j = record[start + a] == "G", record[start + b] == "G"
-                for name_i, name_j in self._ATOM_PAIRS:
-                    if (name_i == "CB" and gly_i) or (name_j == "CB" and gly_j):
-                        continue
-                    ap = ap_index.get(f"{name_i}-{name_j}")
-                    if ap is None:
-                        continue
-                    r_mean, sigma = float(mean[ap, si, ci, cj]), float(std[ap, si, ci, cj])
-                    if not (r_mean > 0 and sigma > 0):
-                        continue
-                    cols["resid_i"].append(resid_i); cols["name_i"].append(name_i)
-                    cols["resid_j"].append(resid_j); cols["name_j"].append(name_j)
-                    cols["r_mean"].append(r_mean); cols["sigma"].append(sigma)
-                    cols["weight"].append(float(self.n_mem))
+                r_mean, sigma = float(mean[ap, si, ci, cj]), float(std[ap, si, ci, cj])
+                if r_mean > 0 and sigma > 0:
+                    mu[p, c, 0], sg[p, c, 0] = r_mean, sigma
+        emit_mixture_wells(cols, record, start, base, fragment_length=L,
+                           min_seq_sep=self.min_seq_sep, max_seq_sep=self.max_seq_sep,
+                           pair_a=pa, pair_b=pb, pair_sep=ps, pi=pi, mu=mu, sigma=sg,
+                           n_mem=self.n_mem, atom_pairs=self._ATOM_PAIRS)
+
+
+@Registry.register("ml_gen")
+class MlGen(FragmentBackend):
+    """v4 (generative): predict the fragment-memory wells directly from ESM-2 context, no database.
+
+    A :class:`~openawsem.memory.ml.distogram.DistogramModel` predicts, per in-window CA/CB pair, a
+    ``K``-component Gaussian mixture over the pair distance from the window's frozen ESM-2 context.
+    Each component becomes a well (``weight_k = n_mem*pi_k``, ``r_mean=mu_k``, ``sigma=sigma_k``), so
+    the output is an ordinary :class:`MemoryWells` -- but built from one ESM-2 pass per chain rather
+    than a database search.  This is the K-component generalization of :meth:`Ml._accumulate_backoff`
+    (which emits one Gaussian per pair from a context-free marginal table).
+
+    Parameters
+    ----------
+    model:
+        A :class:`DistogramModel` or a path to a saved v4 head (loaded query-only, ESM run on the
+        target chain at generation time).
+    """
+
+    _ATOM_PAIRS = _CACB_PAIRS
+
+    def __init__(self, model=None, *, database=None, n_mem=20, fragment_length=9, min_seq_sep=3,
+                 max_seq_sep=9, well_width=0.1, weight=1.0):
+        self._model = model
+        self.database = str(database) if database is not None else None
+        self.n_mem = int(n_mem)
+        self.fragment_length = int(fragment_length)
+        self.min_seq_sep = int(min_seq_sep)
+        self.max_seq_sep = int(max_seq_sep)
+        self.well_width = float(well_width)
+        self.weight = float(weight)
+
+    @property
+    def model(self):
+        if isinstance(self._model, str):
+            from openawsem.memory.ml.distogram import load_distogram
+            self._model = load_distogram(self._model)
+        if self._model is None:
+            raise ValueError("MlGen needs a `model` (a DistogramModel or a saved-head path)")
+        return self._model
+
+    def generate(self, sequence) -> MemoryWells:
+        import torch
+        L = self.fragment_length
+        model = self.model
+        model.module.eval()
+        cols: dict = {c: [] for c in WELLS_COLUMNS}
+        n_windows = 0
+        base = 0
+        for record in self._as_records(sequence):
+            n = len(record)
+            nw = n - L + 1
+            if nw > 0:
+                feat = model.residue_features(record)                     # one ESM-2 pass per chain
+                ctx = np.stack([feat[s:s + L] for s in range(nw)])        # (nw, L, d_esm)
+                with torch.no_grad():
+                    pi, mu, sigma = model.forward(torch.as_tensor(ctx, device=model.device))
+                pi, mu, sigma = pi.cpu().numpy(), mu.cpu().numpy(), sigma.cpu().numpy()
+                for start in range(nw):
+                    emit_mixture_wells(cols, record, start, base, fragment_length=L,
+                                       min_seq_sep=self.min_seq_sep, max_seq_sep=self.max_seq_sep,
+                                       pair_a=model.pair_a, pair_b=model.pair_b,
+                                       pair_sep=model.pair_sep, pi=pi[start], mu=mu[start],
+                                       sigma=sigma[start], n_mem=self.n_mem,
+                                       atom_pairs=self._ATOM_PAIRS)
+                    n_windows += 1
+            base += n
+
+        frame = pd.DataFrame(cols)
+        memory = MemoryWells(frame) if len(frame) else MemoryWells.empty()
+        memory.attrs["params"] = {"min_seq_sep": self.min_seq_sep, "max_seq_sep": self.max_seq_sep,
+                                  "well_width": self.well_width, "units": "nm", "cb_policy": "legacy"}
+        memory.provenance.update({"method": "ml_gen", "model": str(self._model),
+                                  "K": int(model.K), "n_windows": int(n_windows)})
+        return memory
+
+    @staticmethod
+    def _as_records(sequence):
+        return [sequence] if isinstance(sequence, str) else list(sequence)

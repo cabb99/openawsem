@@ -160,6 +160,40 @@ def test_v3_esm_encoder_db_pathway(tmp_path):
     assert np.allclose(Z[:5], enc2.encode_db(idx, rows[:5]), atol=1e-5)
 
 
+def test_ml_gen_v4_schema_and_gly_drop(tmp_path):
+    """Feature: MlGen (v4 generative) emits a valid CA/CB MemoryWells from a predicted mixture,
+    drops glycine CB, and each pair's weights sum to a multiple of n_mem (K components, pi sums 1).
+    Uses random head weights + a synthetic ESM context so it does not load the ESM model."""
+    import pytest
+    pytest.importorskip("torch")
+    from openawsem.memory.ml.distogram import DistogramModel
+    from openawsem.memory.generators.ml import MlGen
+    model = DistogramModel(None, model_key="t30_150M", d_esm=16, L=L, K=3,
+                           min_seq_sep=3, max_seq_sep=4, hidden=8, trunk_out=8, device="cpu")
+    model.module.eval()
+    model.residue_features = lambda s: np.random.default_rng(0).standard_normal(
+        (len(s), 16)).astype(np.float32)
+    seq = "AKGVRSTEDM"                                                    # glycine at resid 3
+    mem = MlGen(model, n_mem=20, fragment_length=L, min_seq_sep=3, max_seq_sep=4).generate(seq)
+    assert isinstance(mem, MemoryWells) and len(mem) > 0
+    assert list(mem.columns) == WELLS_COLUMNS
+    assert set(zip(mem["name_i"], mem["name_j"])) <= CACB
+    assert (mem["sigma"] > 0).all() and (mem["weight"] > 0).all()
+    assert np.isfinite(mem[["r_mean", "sigma", "weight"]].to_numpy()).all()
+    gly = mem[((mem["name_i"] == "CB") & (mem["resid_i"] == 3))
+              | ((mem["name_j"] == "CB") & (mem["resid_j"] == 3))]
+    assert len(gly) == 0                                                  # no glycine CB wells
+    sums = mem.groupby(["resid_i", "name_i", "resid_j", "name_j"])["weight"].sum().to_numpy()
+    assert np.all(np.abs(sums / 20.0 - np.round(sums / 20.0)) < 1e-4)     # each window adds n_mem
+    assert mem.provenance["method"] == "ml_gen" and mem.provenance["K"] == 3
+
+
+def test_ml_gen_registered():
+    """Feature: 'ml_gen' (v4) is a registered backend."""
+    from openawsem.memory import available_methods
+    assert "ml_gen" in available_methods()
+
+
 def test_ml_mutation_engine_commit(tmp_path):
     """Feature: commit applies a mutation so later dE/energy are relative to it."""
     db = _make_varied_db_dir(tmp_path, CHAINS)

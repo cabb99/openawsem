@@ -527,36 +527,38 @@ it reflects real geometry, not just an ordering — v3 retrieves geometrically c
 ### Folding
 
 The ultimate test is whether better retrieval folds proteins better. On a panel of **8 proteins, none
-present as an exact database chain**, each folded from extended with v0 and v3 memories (2 replicates,
-8×10⁶ steps), the tail fold quality $Q$ is:
+present as an exact database chain**, each folded from extended (2 replicates, 8×10⁶ steps) with the
+**conventional** PSI-BLAST fragment memory (homologs excluded, `brain_damage=1`), the **v0** memory,
+and the **v3** memory — *same force field, only the fragment-memory generation differs* — the tail
+fold quality $Q$ is:
 
 > **What $Q$ and "tail $Q$" mean.** $Q$ is the fraction of native contacts present, ranging from ≈0
 > (unrelated to native) to 1 (native-like). "Tail $Q$" here is the **mean $Q$ over the last 10 % of
 > the trajectory** (the cooled-down basin), averaged over the 2 replicates. Two replicates is too few
 > to resolve differences of ≈0.01 from run-to-run variance — read those as ties.
 
-| target | class | v0 | v3 | Δ |
+| target | class | conventional | v0 | v3 |
 |--------|-------|:---:|:---:|:---:|
-| 1enh | α | 0.30 | **0.67** | +0.37 |
-| 2gb1 | β | 0.40 | **0.72** | +0.32 |
-| 2cro | α | 0.32 | **0.49** | +0.17 |
-| 1r69 | α | 0.42 | 0.50 | +0.08 |
-| 1ctf | α/β | 0.33 | 0.40 | +0.07 |
-| 1ubq | α/β | 0.63 | 0.63 | 0.00 |
-| 1shg | β | 0.60 | 0.59 | −0.01 |
-| 1csp | β | 0.29 | 0.28 | −0.01 |
-| **mean** | | **0.412** | **0.534** | **+0.122** |
+| 1enh | α | 0.53 | 0.30 | **0.67** |
+| 2gb1 | β | 0.38 | 0.40 | **0.72** |
+| 2cro | α | 0.33 | 0.32 | **0.49** |
+| 1r69 | α | **0.53** | 0.42 | 0.50 |
+| 1ctf | α/β | 0.33 | 0.33 | **0.40** |
+| 1ubq | α/β | 0.27 | **0.63** | **0.63** |
+| 1shg | β | 0.32 | **0.60** | 0.59 |
+| 1csp | β | 0.29 | **0.29** | 0.28 |
+| **mean** | | **0.372** | **0.412** | **0.534** |
 
-v3 **improves 5 targets, is unchanged on 1, and shows two decreases of 0.01** that are within
-replicate noise (no measurable regression). The large wins are targets where v0 *fails to fold*
-($Q\approx0.3$–$0.4$) and v3 reaches near-native; the ties are saturated cases (both already fold, or
-both fail). 1r69 alone — the protein used in earlier single-target tests — is exactly such a
-saturated case, which is why the single-target comparison was inconclusive and the multi-target panel
-was needed. A cheap CPU retrieval screen (the neighbour-distance RMSE above) predicts the fold
-direction and can pre-select targets before paying for folding.
-
-*A comparison against the conventional PSI-BLAST pipeline on the same panel is in progress and will
-be added as a third column here.*
+On this *homolog-excluded* panel, **v3 has the best mean $Q$ (0.534) and the best or tied-best $Q$ on
+6 of 8 targets**; v0 (0.412) already edges the conventional PSI-BLAST memory (0.372). The large v3
+wins are targets where both v0 *and* conventional fail to fold ($Q\approx0.3$–$0.4$) and v3 reaches
+near-native (1enh, 2gb1, 2cro). Conventional wins outright only on 1r69 — exactly the saturated
+single-target case used in earlier tests, which is why that comparison was inconclusive and the
+multi-target panel was needed. The caveat cuts both ways: excluding homologs (`brain_damage=1`) is the
+fair *de novo* setting but strips conventional of its best templates (e.g. 1ubq collapses to 0.27),
+which is precisely the coverage gap a structural metric is meant to fill. A cheap CPU retrieval screen
+(the neighbour-distance RMSE above) predicts the fold direction and can pre-select targets before
+paying for folding.
 
 ### Summary
 
@@ -566,10 +568,72 @@ be added as a third column here.*
   and hyperparameters it does not beat v0, for the structural reason given above (an isolated 9-mer
   cannot distinguish same-sequence/different-structure fragments).
 * **v3** (a head on frozen ESM-2 context) is the real result: it wins the gate by a wide,
-  size-scaling margin, retrieves geometrically better fragments, and improves multi-target folding by
-  +0.12 mean $Q$ without regressing any target.
+  size-scaling margin, retrieves geometrically better fragments, and has the best mean fold $Q$
+  (0.534) on the homolog-excluded panel — ahead of v0 (0.412) and the conventional PSI-BLAST memory
+  (0.372) — without regressing any target relative to v0.
 * The learned metric also powers a working Monte-Carlo `dE` engine (~234 trials/s via HNSW, v0
   encoder), separate from the BLOSUM-additive `mc_fragments`/`fulldb` engines.
+
+## v4 — generative distogram: predict the wells, don't retrieve them
+
+v0/v3 all *retrieve* real fragments and copy their distances. **v4 is a fork**: it *predicts* the
+wells directly from ESM-2 context, with **no database lookup at inference**. For each in-window CA/CB
+pair it outputs a $K$-component Gaussian mixture over the pair distance; each component becomes a well
+($\text{weight}_k = N_\text{mem}\,\pi_k$, $r_\text{mean}=\mu_k$, $\sigma_k$). Because the energy
+already sums all wells sharing a $(\text{resid}_i,\text{name}_i,\text{resid}_j,\text{name}_j)$ group,
+the output is an ordinary `MemoryWells` and the force field is unchanged. v4 is the
+context-conditioned, $K$-component generalization of the retrieval backend's marginal *backoff* (which
+emits one Gaussian per pair from a context-free table). Backend: `--method ml_gen`, code
+[`generators/ml.py::MlGen`](../openawsem/memory/generators/ml.py) +
+[`ml/distogram.py`](../openawsem/memory/ml/distogram.py).
+
+**Head.** A shared per-pair MLP over $[\,h_a \Vert h_b \Vert \mathrm{emb}(\text{sep})\,]$ — the two
+residues' frozen ESM-2 vectors plus a learned separation embedding — with four independent CA/CB
+channel heads. Trained by **maximum likelihood** of each database fragment's *own* observed distance
+(the geometry descriptor of [§ Geometry descriptor](#geometry-descriptor-and-the-training-signal)),
+weighted by $1/\sigma$ as before. One ESM-2 pass per chain at generation time; the database is used
+only to *train* the head, never to generate.
+
+$$
+p(d \mid x) \;=\; \sum_{k=1}^{K}\pi_k(x)\,\mathcal{N}\!\bigl(d \mid \mu_k(x),\,\sigma_k\bigr),
+\qquad x = \text{ESM-2 context of the pair's two residues}.
+$$
+
+**$\sigma$ is fixed to the AWSEM law** $\sigma=\sigma_0\,\text{sep}^{0.15}$ by default. We tried
+*predicting* $\sigma$ (free-σ): it lowered in-distribution held-out NLL but **worsened**
+out-of-distribution panel reconstruction (e.g. 1ctf NLL 8.3 → 14.3), because a learned-sharp $\sigma$
+becomes *confidently wrong* on unseen folds. The fixed law is a useful **regularizer** against that
+overconfidence, at no cost in geometry (RMSE 0.282 vs 0.280 nm) — so v4 ships fixed-σ.
+
+**Results.** v4 clears the gates: held-out distance NLL beats the context-free marginal (Δ +0.76),
+and on the 8-panel native structures its mean E[d]-to-native **RMSE (0.282 nm) matches retrieval v3
+(0.289)** — a database-free predictor reconstructs local geometry as well as 20-fragment retrieval.
+Folding (same harness, 2 reps):
+
+| target | class | **v4 (generative)** | v3 (retrieval) | v0 | conventional |
+|--------|-------|:---:|:---:|:---:|:---:|
+| 1r69 | α | **0.64** | 0.50 | 0.42 | 0.53 |
+| 2cro | α | **0.57** | 0.49 | 0.32 | 0.33 |
+| 1enh | α | 0.58 | **0.67** | 0.30 | 0.53 |
+| 1ctf | α/β | **0.43** | 0.40 | 0.33 | 0.33 |
+| 2gb1 | β | 0.44 | **0.72** | 0.40 | 0.38 |
+| 1csp | β | **0.39** | 0.28 | 0.29 | 0.29 |
+| 1ubq | α/β | 0.36 | **0.63** | 0.63 | 0.27 |
+| 1shg | β | 0.36 | **0.59** | 0.60 | 0.32 |
+| **mean** | | **0.471** | **0.535** | 0.411 | 0.372 |
+
+v4 folds **above v0 and the conventional PSI-BLAST pipeline, below retrieval v3**, and **wins outright
+on 4/8** targets (best-ever 1r69 at 0.64). The pattern is interpretable: v4 wins on **α /
+locally-determined** folds and loses on **β-sheet** targets (2gb1, 1ubq, 1shg), where non-local strand
+register favors retrieving *real* β-fragments over predicting local geometry. A caveat on the cheap
+recon screen: **1ubq had v4's *best* reconstruction RMSE yet its *worst* fold** — local geometry
+quality predicts the α wins but not the β-sheet failures.
+
+> **Bottom line.** v4 does not replace v3 in general, but it is a genuine result: a single-forward-pass
+> memory with **no fragment database at inference** beats the conventional pipeline and folds α
+> proteins better than retrieval. Natural next steps: a hybrid (v4 where retrieval coverage is thin,
+> v3 otherwise), and non-local context for β register. v4 uses the **cheap CPU recon screen** the same
+> way v3 does — but only as an α-target predictor.
 
 ## Usage
 
@@ -585,6 +649,14 @@ python -m openawsem.memory.cli --method ml --encoder v0 \
 python -m openawsem.memory.ml.esm_features <db> --model t30_150M --out <esm_dir>
 python -m openawsem.memory.ml.train <db> --encoder v3 --esm-dir <esm_dir> \
     --esm-model t30_150M --out enc_v3.pt
+```
+
+```python
+# v4 (ml_gen) — generative distogram: predict the wells from ESM-2 context, NO database at inference:
+from openawsem.memory.generators.ml import MlGen
+gen = MlGen("enc_v4.pt")                  # a saved DistogramModel head (query-only)
+mem = gen.generate(sequence)              # one ESM-2 pass per chain -> MemoryWells
+mem.save("frags_ml_v4.json")
 ```
 
 ```python

@@ -60,6 +60,35 @@ def accumulate_soft_wells(cols, idx, record, start, base, rows, weights, *,
                 cols["weight"].extend(weights[ok].tolist())
 
 
+def emit_mixture_wells(cols, record, start, base, *, fragment_length, min_seq_sep, max_seq_sep,
+                       pair_a, pair_b, pair_sep, pi, mu, sigma, n_mem, atom_pairs=_CACB_PAIRS):
+    """Append the wells of a *predicted* Gaussian mixture for one window (the ``ml_gen``/v4 path).
+
+    Mirror of :func:`accumulate_soft_wells`, but the per-component ``(weight, r_mean, sigma)`` are
+    *predicted* (``weight_k = n_mem*pi_k``) rather than gathered from a database fragment.
+    ``pi``/``mu``/``sigma`` are ``(P, C, K)`` aligned to ``(pair_a, pair_b, pair_sep)`` and
+    ``atom_pairs``; the GLY/CB drop and resid bookkeeping are identical, and non-finite or
+    zero-weight components are skipped.
+    """
+    P = len(pair_a)
+    for p in range(P):
+        a, b, sep = int(pair_a[p]), int(pair_b[p]), int(pair_sep[p])
+        if not (min_seq_sep <= sep <= max_seq_sep):
+            continue
+        resid_i, resid_j = base + start + a + 1, base + start + b + 1
+        gly_i, gly_j = record[start + a] == "G", record[start + b] == "G"
+        for c, (name_i, name_j) in enumerate(atom_pairs):
+            if (name_i == "CB" and gly_i) or (name_j == "CB" and gly_j):
+                continue
+            for k in range(pi.shape[-1]):
+                w, rm, sg = float(n_mem * pi[p, c, k]), float(mu[p, c, k]), float(sigma[p, c, k])
+                if not (np.isfinite(rm) and sg > 0 and w > 0):
+                    continue
+                cols["resid_i"].append(resid_i); cols["name_i"].append(name_i)
+                cols["resid_j"].append(resid_j); cols["name_j"].append(name_j)
+                cols["r_mean"].append(rm); cols["sigma"].append(sg); cols["weight"].append(w)
+
+
 @Registry.register("local_db")
 class LocalDB(FragmentBackend):
     """Database-retrieved real fragments -> a :class:`MemoryWells`.
