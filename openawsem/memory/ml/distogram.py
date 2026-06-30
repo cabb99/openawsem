@@ -32,26 +32,32 @@ _NM_PER_A = 0.1
 MU_LO, MU_HI = 0.2, 2.5                                        # nm; mixture mean range
 
 
-def _build_head(d_esm, *, n_sep, e_sep, hidden, trunk_out, K, n_channels, free_sigma):
-    """Construct the per-pair mixture head (lazy torch); ``n_sep`` indexes by raw separation."""
+def _build_head(d_esm, *, n_sep, e_sep, hidden, trunk_out, K, n_channels, free_sigma,
+                window_pool=False):
+    """Construct the per-pair mixture head (lazy torch); ``n_sep`` indexes by raw separation.
+
+    With ``window_pool`` the head also sees the window-mean ESM vector (a non-local summary of the
+    whole 9-mer) alongside the two residues' vectors."""
     torch = _torch()
     nn = torch.nn
     params = 3 if free_sigma else 2                            # (logit_pi, mu[, log_sigma]) per comp
+    in_dim = (3 if window_pool else 2) * d_esm + e_sep
 
     class _GMHead(nn.Module):
         def __init__(self):
             super().__init__()
+            self.window_pool = window_pool
             self.sep_embed = nn.Embedding(n_sep, e_sep)
             self.trunk = nn.Sequential(
-                nn.Linear(2 * d_esm + e_sep, hidden), nn.BatchNorm1d(hidden), nn.ReLU(),
+                nn.Linear(in_dim, hidden), nn.BatchNorm1d(hidden), nn.ReLU(),
                 nn.Linear(hidden, hidden), nn.BatchNorm1d(hidden), nn.ReLU(),
                 nn.Linear(hidden, trunk_out), nn.ReLU(),
             )
             self.heads = nn.ModuleList([nn.Linear(trunk_out, K * params) for _ in range(n_channels)])
 
-        def forward(self, ha, hb, sep_idx):
-            x = torch.cat([ha, hb, self.sep_embed(sep_idx)], dim=-1)
-            h = self.trunk(x)
+        def forward(self, ha, hb, sep_idx, wctx=None):
+            parts = [ha, hb] + ([wctx] if self.window_pool else []) + [self.sep_embed(sep_idx)]
+            h = self.trunk(torch.cat(parts, dim=-1))
             return [head(h).view(-1, K, params) for head in self.heads]   # n_channels x (M, K, params)
 
     return _GMHead()
@@ -64,7 +70,7 @@ class DistogramModel:
 
     def __init__(self, esm_feat=None, *, model_key="t30_150M", d_esm=640, L=9, K=4,
                  min_seq_sep=3, max_seq_sep=9, well_width=0.1, e_sep=32, hidden=512, trunk_out=256,
-                 free_sigma=False, module=None, device=None):
+                 free_sigma=False, window_pool=False, module=None, device=None):
         torch = _torch()
         self.esm_feat = esm_feat                              # (N_res, d_esm) memmap, or None (query)
         self.model_key = model_key
@@ -78,6 +84,7 @@ class DistogramModel:
         self.hidden = int(hidden)
         self.trunk_out = int(trunk_out)
         self.free_sigma = bool(free_sigma)
+        self.window_pool = bool(window_pool)
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         pa, pb, ps = in_window_pairs(self.L, min_sep=self.min_seq_sep, max_sep=self.max_seq_sep)
         self.pair_a, self.pair_b, self.pair_sep = pa, pb, ps  # fixed layout, length P
@@ -85,7 +92,8 @@ class DistogramModel:
         self.n_channels = len(CACB_PAIRS)
         self.module = module or _build_head(
             self.d_esm, n_sep=self.max_seq_sep + 1, e_sep=self.e_sep, hidden=self.hidden,
-            trunk_out=self.trunk_out, K=self.K, n_channels=self.n_channels, free_sigma=self.free_sigma)
+            trunk_out=self.trunk_out, K=self.K, n_channels=self.n_channels, free_sigma=self.free_sigma,
+            window_pool=self.window_pool)
         self.module = self.module.to(self.device)
 
     # ----- ESM context (DB pathway: per-residue, NOT pooled) ----------------- #
@@ -110,9 +118,12 @@ class DistogramModel:
         sep = torch.as_tensor(self.pair_sep, dtype=torch.long, device=ctx.device)
         ha = ctx[:, pa, :].reshape(M * len(pa), self.d_esm)               # (M*P, d_esm)
         hb = ctx[:, pb, :].reshape(M * len(pb), self.d_esm)
-        sep_idx = sep.repeat(M)                                           # (M*P,)
-        outs = self.module(ha, hb, sep_idx)                              # C x (M*P, K, params)
         P = len(pa)
+        sep_idx = sep.repeat(M)                                           # (M*P,)
+        wctx = None
+        if self.window_pool:
+            wctx = ctx.mean(dim=1)[:, None, :].expand(M, P, self.d_esm).reshape(M * P, self.d_esm)
+        outs = self.module(ha, hb, sep_idx, wctx)                        # C x (M*P, K, params)
         pis, mus, sigs = [], [], []
         sig_fixed = torch.as_tensor(self.sigma_fixed, dtype=torch.float32, device=ctx.device)
         for c, out in enumerate(outs):
@@ -155,7 +166,7 @@ class DistogramModel:
                        "L": self.L, "K": self.K, "min_seq_sep": self.min_seq_sep,
                        "max_seq_sep": self.max_seq_sep, "well_width": self.well_width,
                        "e_sep": self.e_sep, "hidden": self.hidden, "trunk_out": self.trunk_out,
-                       "free_sigma": self.free_sigma}, f)
+                       "free_sigma": self.free_sigma, "window_pool": self.window_pool}, f)
 
 
 def load_distogram(path, esm_feat=None):
@@ -166,7 +177,8 @@ def load_distogram(path, esm_feat=None):
     model = DistogramModel(esm_feat, model_key=m["model_key"], d_esm=m["d_esm"], L=m["L"], K=m["K"],
                            min_seq_sep=m["min_seq_sep"], max_seq_sep=m["max_seq_sep"],
                            well_width=m["well_width"], e_sep=m["e_sep"], hidden=m["hidden"],
-                           trunk_out=m["trunk_out"], free_sigma=m["free_sigma"])
+                           trunk_out=m["trunk_out"], free_sigma=m["free_sigma"],
+                           window_pool=m.get("window_pool", False))
     model.module.load_state_dict(torch.load(path, map_location=model.device))
     model.module.eval()
     return model
