@@ -22,7 +22,7 @@
 ), palette: "warm", scale: 90%)
 #v(16pt)
 
-#text(weight: "bold", size: 11pt)[v3  (ESM-2 context + trained head)]
+#text(weight: "bold", size: 11pt)[v3  (ESM-2 context + trained head -> embedding, then RETRIEVE)]
 #v(2pt)
 #draw-network((
     (type: "convres", name: "L0", label: "chain\nsequence", fill: rgb("#9aa7b8"), offset: 2.0, height: 4.0, depth: 2.8, width: 1.6),
@@ -32,5 +32,17 @@
     (type: "convres", name: "L4", label: "mix\n(256)", fill: rgb("#6fa8dc"), offset: 2.0, height: 9.9, depth: 6.9, width: 1.6),
     (type: "convres", name: "L5", label: "compress\n(64)", fill: rgb("#3d6fb4"), offset: 2.0, height: 5.0, depth: 3.5, width: 1.6),
     (type: "convres", name: "L6", label: "L2-normalize\n64 numbers", fill: rgb("#7bc47f"), offset: 2.0, height: 5.0, depth: 3.5, width: 1.6),
+), palette: "warm", scale: 90%)
+#v(16pt)
+
+#text(weight: "bold", size: 11pt)[v4  (ESM-2 context + trained head -> Gaussian wells, GENERATE; no database)]
+#v(2pt)
+#draw-network((
+    (type: "convres", name: "L0", label: "chain\nsequence", fill: rgb("#9aa7b8"), offset: 2.0, height: 4.0, depth: 2.8, width: 1.6),
+    (type: "convres", name: "L1", label: "ESM-2\n(frozen)\n(640)", fill: rgb("#e0884e"), offset: 2.0, height: 15.7, depth: 11.0, width: 1.6),
+    (type: "convres", name: "L2", label: "take 2 residues\n+ separation\n(1312)", fill: rgb("#aebfd0"), offset: 2.0, height: 22.5, depth: 15.7, width: 1.6),
+    (type: "convres", name: "L3", label: "mix\n(512)", fill: rgb("#6fa8dc"), offset: 2.0, height: 14.0, depth: 9.8, width: 1.6),
+    (type: "convres", name: "L4", label: "mix\n(256)", fill: rgb("#6fa8dc"), offset: 2.0, height: 9.9, depth: 6.9, width: 1.6),
+    (type: "convres", name: "L5", label: "K Gaussian wells\nper CA/CB pair", fill: rgb("#5aa469"), offset: 2.0, height: 4.0, depth: 2.8, width: 1.6),
 ), palette: "warm", scale: 90%)
 #v(16pt)

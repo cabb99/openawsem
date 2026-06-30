@@ -78,12 +78,20 @@ def build_specs():
             *head_blocks(v1, 180),
             {"kind": "Norm", "label": "L2-normalize", "width": 64, "out": "64 numbers"},
         ],
-        "v3  (ESM-2 context + trained head)": [
+        "v3  (ESM-2 context + trained head -> embedding, then RETRIEVE)": [
             {"kind": "Input", "label": "chain\\nsequence", "width": 0},
             {"kind": "PLM", "label": "ESM-2\\n(frozen)", "width": 640},
             {"kind": "Pool", "label": "mean-pool\\n9-mer", "width": 640},
             *head_blocks(v3, 640),
             {"kind": "Norm", "label": "L2-normalize", "width": 64, "out": "64 numbers"},
+        ],
+        "v4  (ESM-2 context + trained head -> Gaussian wells, GENERATE; no database)": [
+            {"kind": "Input", "label": "chain\\nsequence", "width": 0},
+            {"kind": "PLM", "label": "ESM-2\\n(frozen)", "width": 640},
+            {"kind": "Pair", "label": "take 2 residues\\n+ separation", "width": 1312},
+            {"kind": "Dense", "width": 512},
+            {"kind": "Dense", "width": 256},
+            {"kind": "Mixture", "label": "K Gaussian wells\\nper CA/CB pair", "width": 0},
         ],
     }
     return specs
@@ -93,9 +101,10 @@ def build_specs():
 # Every block is a 3-D box (type "convres") whose side scales with sqrt(dimension): a length-D
 # vector is drawn as roughly a sqrt(D) x sqrt(D) square, so box size reads off the array size.
 FILL = {"Input": "#9aa7b8", "PLM": "#e0884e", "Pool": "#aebfd0", "Dense": "#6fa8dc",
-        "Linear": "#3d6fb4", "Norm": "#7bc47f"}
+        "Linear": "#3d6fb4", "Norm": "#7bc47f", "Pair": "#aebfd0", "Mixture": "#5aa469"}
 PLAIN = {"Input": "input", "PLM": "ESM-2 (frozen)\\nreads whole chain", "Pool": "average the 9",
-         "Dense": "mix", "Linear": "compress", "Norm": "scale to length 1"}
+         "Dense": "mix", "Linear": "compress", "Norm": "scale to length 1",
+         "Pair": "pick a residue pair", "Mixture": "predict the wells"}
 
 
 def layer_typst(b, i):

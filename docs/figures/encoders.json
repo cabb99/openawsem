@@ -53,7 +53,7 @@
       "out": "64 numbers"
     }
   ],
-  "v3  (ESM-2 context + trained head)": [
+  "v3  (ESM-2 context + trained head -> embedding, then RETRIEVE)": [
     {
       "kind": "Input",
       "label": "chain\\nsequence",
@@ -102,6 +102,36 @@
       "label": "L2-normalize",
       "width": 64,
       "out": "64 numbers"
+    }
+  ],
+  "v4  (ESM-2 context + trained head -> Gaussian wells, GENERATE; no database)": [
+    {
+      "kind": "Input",
+      "label": "chain\\nsequence",
+      "width": 0
+    },
+    {
+      "kind": "PLM",
+      "label": "ESM-2\\n(frozen)",
+      "width": 640
+    },
+    {
+      "kind": "Pair",
+      "label": "take 2 residues\\n+ separation",
+      "width": 1312
+    },
+    {
+      "kind": "Dense",
+      "width": 512
+    },
+    {
+      "kind": "Dense",
+      "width": 256
+    },
+    {
+      "kind": "Mixture",
+      "label": "K Gaussian wells\\nper CA/CB pair",
+      "width": 0
     }
   ]
 }

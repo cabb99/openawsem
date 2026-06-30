@@ -1,83 +1,93 @@
-# Learned-embedding fragment retrieval (ml)
+# Learned fragment-memory backends (`ml` retrieval, `ml_gen` generation)
 
-`ml` is a fragment-memory backend that selects database fragments for the AWSEM fragment-memory
-potential by a *learned structural metric* instead of by sequence similarity. Each sliding window
-of the target is encoded to a short vector; the most similar database fragments are retrieved by
-that vector; and their stored CA/CB distances become the Gaussian wells of the potential. Encoding
-by a metric trained to track local *structure* lets the memory include fragments whose sequence is
-far from the target but whose backbone geometry is right — coverage that a BLOSUM sequence search
-cannot reach.
+These backends build the AWSEM fragment-memory potential with a *learned model of local protein
+structure* instead of a sequence search. They come in one **family of versions** that all feed the
+same, unchanged AWSEM force field — they only change how the per-window Gaussian wells are chosen:
 
-Code: [`openawsem/memory/generators/ml.py`](../openawsem/memory/generators/ml.py)
+* **v0 / v1 / v3 — retrieval** (`--method ml`): encode each window to a short vector, find the most
+  similar database fragments, and copy *their* measured CA/CB distances into the wells.
+* **v4 — generation** (`--method ml_gen`): *predict* the wells directly from sequence context, with
+  **no database lookup at inference** at all.
 
-> **What this method is — and is not.** The neural network does **not** predict the protein
+The headline: the strongest member is **v4 on the 650M ESM-2 model — it folds proteins better than
+every other method tested, including PSI-BLAST and retrieval, while needing no fragment database**
+(see [Results](#results)).
+
+Code: [`openawsem/memory/generators/ml.py`](../openawsem/memory/generators/ml.py).
+
+> **What these methods are — and are not.** The neural network does **not** predict the protein
 > structure, the atomic coordinates, or the fragment-memory energy, and it is **not** trained during
-> a folding simulation. It only decides **which existing database fragments** should supply the
-> preferred distances used by the ordinary, unchanged AWSEM potential. Everything physical — the
-> Gaussian wells, the force constant, the force field — is the conventional AWSEM machinery. The
-> network changes one step: the *search* that picks the fragments.
+> a folding simulation. It only chooses **the preferred distances** that go into the ordinary,
+> unchanged AWSEM potential — either by picking which database fragments supply them (retrieval) or
+> by predicting them (generation). Everything physical — the Gaussian wells, the force constant, the
+> force field — is the conventional AWSEM machinery.
 
-The backend implements the standard `FragmentBackend` interface:
+Both backends implement the standard `FragmentBackend` interface:
 
-* `generate(sequence)` returns AWSEM `MemoryWells`, so the object is a drop-in force-field memory
-  generator (`awsem generate-memory --method ml`).
-* `mutation_engine(sequence, structure)` returns an `MlMutationEnergy` exposing `total_energy()`,
-  `dE(position, new_aa)`, and `commit(position, new_aa)`, for Monte-Carlo sequence design.
+* `generate(sequence)` returns AWSEM `MemoryWells`, a drop-in force-field memory
+  (`awsem generate-memory --method ml` / `--method ml_gen`).
+* the retrieval backend also offers `mutation_engine(sequence, structure)` → an `MlMutationEnergy`
+  exposing `total_energy()`, `dE(position, new_aa)`, `commit(position, new_aa)` for Monte-Carlo design.
 
 ---
 
 ## A worked example first
 
-Before any notation, follow one window of a target protein through the whole method.
+Before any notation, follow one window of a target protein through the method — first the
+**retrieval** way (v0/v1/v3), then the **generative** way (v4).
 
-> Consider **residues 20–28** of the target — a 9-residue window. The encoder converts information
-> about these nine residues into a list of **64 numbers**. These numbers do **not** represent
-> distances or coordinates; they are a learned *summary* designed so that fragments that fold into
-> similar local shapes receive similar summaries. The 64 numbers are rescaled to have length one.
-> The database of ≈2.3 million stored fragments is then searched for the summaries pointing in
-> nearly the same direction — the 20 most similar fragments. Finally, the atomic CA/CB distances
-> measured in *those* 20 real fragments are dropped into the AWSEM energy as preferred distances,
-> gently biasing residues 20–28 toward their local shape. Repeat for every window, and the union of
-> all those preferences is the fragment-memory guide that folds the protein.
+> **Retrieval (v0/v1/v3).** Consider **residues 20–28** of the target — a 9-residue window. The
+> encoder converts information about these nine residues into a list of **64 numbers**. These numbers
+> do **not** represent distances or coordinates; they are a learned *summary* designed so that
+> fragments that fold into similar local shapes receive similar summaries. The 64 numbers are
+> rescaled to length one. The database of ≈2.3 million stored fragments is searched for the summaries
+> pointing in nearly the same direction — the 20 most similar fragments. Finally, the atomic CA/CB
+> distances measured in *those* 20 real fragments are dropped into the AWSEM energy as preferred
+> distances, gently biasing residues 20–28 toward their local shape.
 
-The whole dataflow, with the crucial distinction between *what is predicted from sequence* and
-*what is read from real structures*:
+> **Generation (v4).** Same window, but no search. A trained network reads the window *in the context
+> of the whole chain* and **predicts, for each pair of residues in the window, a few likely
+> distances** (a small "menu" of Gaussian wells). Those predicted distances go straight into the
+> AWSEM energy. No database is consulted at all — the network has *learned* what local geometries the
+> sequence implies.
+
+Either way, repeat for every window and the union of all those preferences is the fragment-memory
+guide that folds the protein. The two dataflows, side by side:
 
 ```text
-Target amino-acid sequence  (this is ALL the method sees at generation time)
-    │  slide a 9-residue window along the chain
-    ▼
-A 9-residue window  +  its surrounding sequence context        ── predicted from sequence ──┐
-    │  encoder  f_θ                                                                          │
-    ▼                                                                                        │
-a 64-number "retrieval embedding"  z   (a point in space, length 1)                          │
-    │  nearest-neighbour search over the database embeddings                                 │
-    ▼                                                                                         │
-the 20 most similar database fragments                          ── read from real structures ┘
-    │  read their stored CA/CB atom-to-atom distances
-    ▼
-Gaussian wells added to the AWSEM energy  (soft distance preferences)
+                 RETRIEVAL  (v0/v1/v3, --method ml)        GENERATION  (v4, --method ml_gen)
+
+ target sequence ─► slide a 9-residue window           target sequence ─► slide a 9-residue window
+     │  encoder f_θ                                         │  ESM-2 context + trained head
+     ▼                                                      ▼
+ a 64-number embedding z                                per-pair distance prediction
+     │  nearest-neighbour search over ~2.3M db vectors      │  (no database)
+     ▼                                                      ▼
+ the 20 most similar database fragments                 a K-Gaussian mixture per CA/CB pair
+     │  copy their measured CA/CB distances                 │  use the predicted means/weights
+     ▼                                                      ▼
+ Gaussian wells in the AWSEM energy                     Gaussian wells in the AWSEM energy
 ```
 
-The target's own structure is **never** used to generate its memory — only its amino-acid sequence.
-Real structural information enters only through the *database* fragments that get retrieved.
+The target's own structure is **never** used to build its memory — only its amino-acid sequence. In
+retrieval, real structural information enters through the *database* fragments; in generation, it was
+distilled into the network's weights during training and never touched again at inference.
 
 ### What is learned, and what is not
 
 A common misconception is that "the neural network" does everything. In fact most of the machinery
 is fixed physics and fixed algorithms; only a small head is trained.
 
-| Component | Learned? | Changes during training? | Used during folding? |
-|---|---|---|---|
-| ESM-2 protein language model (v3 only) | No — pretrained elsewhere, **frozen** | No | Yes, to encode the query |
-| MLP "head" (the small trained network) | **Yes** | **Yes** | Yes |
-| Geometry descriptor *g* (the training target) | No — computed from real coordinates | No | **Training only**, never at folding |
-| FAISS / HNSW search index | No — a data structure | No | Yes |
-| Gaussian-well formula & well widths | No — fixed AWSEM physics | No | Yes |
-| AWSEM force field (contacts, H-bonds, …) | No | No | Yes |
+| Component | Learned? | Used at folding time? |
+|---|---|---|
+| ESM-2 protein language model (v3, v4) | No — pretrained elsewhere, **frozen** | Yes, to read the query sequence |
+| MLP "head" (the small trained network) | **Yes** | Yes |
+| Geometry descriptor *g* (the training target) | No — computed from real coordinates | **Training only**, never at folding |
+| FAISS / HNSW search index (retrieval only) | No — a data structure | Yes (v0/v1/v3); **not used by v4** |
+| Gaussian-well formula & well widths | No — fixed AWSEM physics | Yes |
+| AWSEM force field (contacts, H-bonds, …) | No | Yes |
 
-The network being trained is small: for v3 it is a 3-layer MLP head (≈0.4 M weights) sitting on top
-of the frozen ESM-2 features.
+The trained network is small: ≈0.4 M weights (v3) sitting on top of the frozen ESM-2 features.
 
 ---
 
@@ -86,89 +96,75 @@ of the frozen ESM-2 features.
 This section defines the handful of ML terms the rest of the document uses. A full
 [glossary](#glossary) is at the end.
 
-**Embedding.** An *embedding* is a fixed-length list of numbers (a vector) produced from some input.
-Three things matter:
-
-* It is **not** generally interpretable number-by-number — no single entry "is" an angle or a
-  distance.
-* It is trained so that **geometric closeness of two embeddings means a desired kind of similarity**
-  — here, similar local backbone shape.
-* It is used for **retrieval** (finding look-alikes), not as physical coordinates. A *64-dimensional*
-  embedding is simply a list of 64 numbers; it is not a 3-D structure.
+**Embedding.** A fixed-length list of numbers (a vector) produced from some input. Three things
+matter: it is **not** generally interpretable number-by-number; it is trained so that **geometric
+closeness of two embeddings means a desired similarity** (here, similar local backbone shape); and it
+is used for **retrieval**, not as physical coordinates. A *64-dimensional* embedding is just a list
+of 64 numbers — not a 3-D structure.
 
 **Encoder.** The function `f_θ` that turns an input into an embedding. The subscript `θ` (theta) are
 its adjustable numbers, the *weights*.
 
-**Length normalization and cosine similarity.** We compare two embeddings only by the *direction*
-they point, not their magnitude:
+**Length normalization and cosine similarity.** We compare two embeddings by the *direction* they
+point, not their magnitude. `‖f_θ(x)‖` is the vector's Euclidean length; dividing by it gives `z` of
+length 1 (**L2 normalization**). Then the dot product `z_q · z_f` equals the **cosine of the angle**:
+`+1` = same direction (very similar), `0` = unrelated, `−1` = opposite. Forcing length 1 makes
+retrieval depend on the *pattern* of the embedding, not its scale.
 
-* `‖f_θ(x)‖` is the ordinary Euclidean length of the vector (square root of the sum of squares).
-* Dividing the vector by its length gives `z`, a vector of length exactly 1. This is **L2
-  normalization** ("L2" = Euclidean length).
-* After normalization, the dot product `z_q · z_f` of two embeddings equals the **cosine of the
-  angle** between them: `+1` = same direction (very similar), `0` = perpendicular (unrelated),
-  `−1` = opposite.
-* Why bother: without it, the encoder could inflate "similarity" just by emitting bigger numbers.
-  Forcing length 1 makes retrieval depend on the *pattern* of the embedding, not its scale.
+**The neural-network blocks** (used in the architecture figure below):
 
-**The neural-network blocks** (used in the encoder figure below):
+* **Linear (a.k.a. dense) layer** — produces a new vector of weighted sums, `y_j = b_j + Σ_i W_{ji} x_i`.
+  The weights `W`, biases `b` are what training adjusts. In the figure this is the **"compress"** block
+  when it reduces the count (256 → 64).
+* **ReLU** — replaces negatives by 0. This nonlinearity lets stacked linear layers represent
+  relationships a single one cannot.
+* **Batch normalization** — rescales intermediate values to keep training stable; does not change the
+  vector's meaning.
+* **MLP** (multilayer perceptron) — a stack of `Linear → (norm) → ReLU` steps on plain vectors; **not**
+  a graph network, no atomic coordinates. Each `Linear → BN → ReLU` run is one **"mix"** block.
+* **Mean pooling** — averages several vectors into one (v3 averages a window's 9 ESM-2 vectors). Order
+  is not lost: each ESM-2 vector already carries context.
+* **Gaussian mixture** (v4) — a "menu" of a few Gaussians, each with a weight `π`, centre `μ`, and
+  width `σ`. v4 predicts one such mixture per residue pair; each component becomes one well.
 
-* **Linear (a.k.a. dense) layer** — takes an input vector `x` and produces a new vector `y` of
-  weighted sums, `y_j = b_j + Σ_i W_{ji} x_i`. The weights `W` and biases `b` are exactly what
-  training adjusts. In the architecture figure this is the **"compress"** block when it *reduces* the
-  number of values (e.g. 256 → 64).
-* **ReLU** (rectified linear unit) — replaces every negative value by 0 and leaves positives
-  unchanged. This *nonlinearity* is what lets several linear layers together represent relationships
-  a single linear map cannot.
-* **Batch normalization** — rescales the intermediate values during training to keep optimization
-  stable; at inference it uses statistics saved from training. It does not change the meaning of the
-  vector, only its numerical scale.
-* **MLP** (multilayer perceptron) — a stack of `Linear → (norm) → ReLU` steps. It operates on plain
-  vectors; it is **not** a graph network and does not manipulate atomic coordinates. In the figure,
-  each `Linear → BatchNorm → ReLU` run is collapsed into one **"mix"** block (it mixes the input
-  numbers into a new set of the same size, here 256).
-* **Mean pooling** — averages several vectors into one. v3 averages the ESM-2 vectors of the nine
-  residues in a window into a single window vector (the **"average"** block). Averaging by itself
-  ignores order, but each ESM-2 residue vector already carries *position- and context-dependent*
-  information, so window identity is not lost.
+**Training vs. inference.** **Training** (once, offline): real database structures are available; the
+method measures structural distances, picks examples, and adjusts the head's weights. **Inference /
+generation** (every time a memory is built): only the target *sequence* is available; the method
+builds wells without ever seeing the target's structure.
 
-**Training vs. inference.** These are two distinct phases:
-
-* **Training** (done once, offline): real database structures *are* available. The method measures
-  structural distances between fragments, picks examples, runs them through the encoder, and adjusts
-  the head's weights so structurally-similar fragments get similar embeddings.
-* **Inference / generation** (every time a memory is built): only the target *sequence* is available.
-  The method encodes the target's windows, retrieves database fragments, and builds ordinary
-  fragment-memory wells. No structural information about the target is used.
-
-**Frozen** means a network's weights are held fixed and **not** updated by training. v3 uses a frozen
-ESM-2 as a fixed feature generator; only the small MLP head placed after it is optimized.
+**Frozen** means a network's weights are held fixed. v3/v4 use a frozen ESM-2 as a fixed feature
+generator; only the small head after it is trained.
 
 ---
 
-## Why a learned metric (the scientific motivation)
+## The version family
 
 The AWSEM fragment-memory potential biases a structure toward the local geometry of related
-fragments: for each window of the target, a set of database fragments is selected, and the pairwise
-distances they carry become Gaussian wells acting on the target's atoms. The classic selection rule
-is *sequence* similarity (PSI-BLAST, or the BLOSUM62 search in `local_db`). Sequence similarity is a
-proxy for structural similarity, and an imperfect one: two windows with nearly identical sequence
-can adopt different backbone geometry, and two windows with very different sequence can share a fold.
-Where the proxy fails, the wrong fragments are selected and the wells pull the structure the wrong
-way.
+fragments: per window, a set of preferred CA/CB distances becomes Gaussian wells on the target's
+atoms. The classic way to choose them is *sequence* similarity (PSI-BLAST, or the BLOSUM62 search in
+`local_db`). Sequence similarity is an imperfect proxy for structural similarity: two windows with
+nearly identical sequence can fold differently, and two very different sequences can share a fold.
+Where the proxy fails, the wrong distances are chosen and the wells pull the wrong way.
 
-`ml` replaces the sequence-similarity proxy with a metric trained to track structural similarity
-directly. The encoder is the only part that changes between variants, behind a fixed pipeline
-(geometry descriptor → metric training → search index → wells). This gives an ablation ladder of
-increasing power and cost:
+These backends replace that proxy with a *learned model of local structure*. The versions form a
+ladder of increasing power; **v0→v1→v3 keep the retrieval pipeline and only swap the encoder, while
+v4 forks to direct prediction:**
 
-* **v0** — no learning: a 9-mer is described by its concatenated BLOSUM62 rows, retrieved by cosine.
-  The explicit "sequence similarity is enough" baseline.
-* **v1** — a small MLP on the same BLOSUM features, trained with a metric loss.
-* **v3** — a learned head on *frozen ESM-2 per-residue embeddings*, which carry full-chain context.
+* **v0 — sequence, no learning** *(retrieval)*. A 9-mer is described by its concatenated BLOSUM62
+  rows, retrieved by cosine. The "sequence similarity is enough" baseline; ships dependency-light.
+* **v1 — a trained metric on the bare 9-mer** *(retrieval)*. A small MLP on the same BLOSUM features.
+  **Does not beat v0** — an isolated 9-mer cannot tell apart same-sequence/different-structure
+  fragments (see [why v1 fails](#training)).
+* **v3 — a trained head on frozen ESM-2 context** *(retrieval)*. Each residue's ESM-2 vector already
+  encodes the whole chain, breaking that degeneracy. **Wins the metric gate decisively** and folds
+  better than sequence search.
+* **v4 — predict the wells directly from ESM-2 context** *(generation, the fork)*. No database at
+  inference. On the **650M** ESM-2 model it is the **best folding method overall**, recovering the
+  β-sheet targets retrieval and v0–v3 struggle with — and it is the sparsest, fastest-to-generate,
+  database-free memory.
 
-Only v3 beats the v0 baseline, and it does so by a clear margin (see [Results](#results)): the useful
-signal is the protein-language-model *context*, not extra capacity on the bare 9-mer.
+(v2, a 1-D CNN over the 9 positions, was skipped: still a bare-9-mer encoder like v1, so the same
+degeneracy applies.)
 
 ### Notation
 
@@ -176,88 +172,80 @@ signal is the protein-language-model *context*, not extra capacity on the bare 9
 |--------|---------|
 | $L$ | window / fragment length, default 9 |
 | $N$ | number of fragments in the database (≈2.3M for the pc30 set) |
-| $x$ | a query 9-mer plus its sequence context (the encoder input) |
-| $z=f_\theta(x)/\lVert f_\theta(x)\rVert$ | the L2-normalized **retrieval embedding**, $z\in\mathbb{R}^d$ |
+| $x$ | a query 9-mer plus its sequence context (the model input) |
+| $z=f_\theta(x)/\lVert f_\theta(x)\rVert$ | the L2-normalized **retrieval embedding** (v0/v1/v3), $z\in\mathbb{R}^d$ |
 | $d$ | embedding dimension ($180$ for v0, $64$ for the learned heads) |
 | $s_f=z_q\!\cdot\!z_f$ | cosine similarity between query and database fragment $f$ |
-| $\tau_\text{train}$ | temperature of the training loss (default 0.1) |
-| $\tau_\text{ret}$ | temperature of the retrieval weights (default 0.07) |
+| $\tau_\text{train},\,\tau_\text{ret}$ | training-loss / retrieval-weight temperatures (0.1 / 0.07) |
 | $N_\text{mem}$ | weight normalization per window (`n_mem`), default 20 |
 | $k$ | number of fragments retrieved per window (`top_k`), default 20 |
 | $r_{ij},\,r_{ij}^{f}$ | atom-pair distance in the target and in fragment $f$ |
 | $\sigma_{ij}=\sigma_0\,\lvert i-j\rvert^{0.15}$ | Gaussian well width |
 | $k_{fm}$ | fragment-memory force constant, default 0.04184 kJ/mol |
-| $g_r$ | **geometry descriptor** of fragment $r$ — computed from real coordinates, training signal only |
+| $g_r$ | **geometry descriptor** of fragment $r$ — from real coordinates, training signal only |
 | $d_\text{struct}$ | well-width-weighted structural distance between two fragments |
+| $(\pi_k,\mu_k,\sigma_k)$ | v4's predicted Gaussian-mixture component $k$ (weight, centre, width) |
 
 > **Two different things both called "the vector," kept distinct here.** The **retrieval embedding**
-> $z$ is *predicted from sequence* and used to search. The **geometry descriptor** $g_r$ is
-> *computed from a fragment's real coordinates* and used only to define the training target. The
-> encoder **never sees** $g_r$ as input; $g_r$ exists only to tell training which fragments *should*
-> end up close. Do not confuse the two.
+> $z$ is *predicted from sequence* and used to search. The **geometry descriptor** $g_r$ is *computed
+> from a fragment's real coordinates* and used only to define the training target. The model **never
+> sees** $g_r$ as input; it exists only to tell training which fragments *should* end up close. Do
+> not confuse the two.
 
-## The retrieval pipeline
+## How a memory is built
 
-At inference the encoder is the entire model; everything downstream is fixed geometry and bookkeeping
-shared with the other backends.
+At inference the trained network is the entire model; everything downstream is fixed geometry and
+bookkeeping shared with the other backends.
 
 ![How the ml backend chooses fragments](figures/ml_pipeline.svg)
 
-*The whole idea in five steps: slide a window along the protein, summarize it as an embedding vector,
-find the database fragments with the nearest embeddings, borrow their measured atom distances, and
-add them as soft distance preferences that shape the fold. The only thing that changes between
-versions is how the embedding is computed — v0 from sequence, v3 from a frozen protein language model
-plus a trained head.*
+*The retrieval idea in five steps: slide a window along the protein, summarize it as an embedding
+vector, find the database fragments with the nearest embeddings, borrow their measured atom
+distances, and add them as soft distance preferences that shape the fold. **v4 replaces steps 2–4**
+(embed → search → borrow) with a single learned prediction of the distances — same step 5, no
+database.*
 
-The database vectors $z_f$ are encoded once and stored in the index; a query protein is encoded per
-window at generation time. The wells are built by the same soft-accumulation code as `local_db`
-(`accumulate_soft_wells`), so the resulting energy is the standard fragment-memory potential
-
-$$
-V_\text{FM} \;=\; -\,k_{fm}\sum_{w}\sum_{(i,j)\in w}\;\sum_{f\in\text{top-}k(w)} w_f\,
-\exp\!\left(-\frac{\bigl(r_{ij}-r_{ij}^{f}\bigr)^2}{2\,\sigma_{ij}^2}\right),
-$$
-
-with the per-window fragment weights set by the retrieval similarity,
+The wells are built by the same soft-accumulation code as `local_db` (`accumulate_soft_wells` for
+retrieval; `emit_mixture_wells` for v4), so in every version the resulting energy is the standard
+fragment-memory potential
 
 $$
-w_f \;=\; N_\text{mem}\,\frac{e^{\,s_f/\tau_\text{ret}}}{\sum_{g\in\text{top-}k}e^{\,s_g/\tau_\text{ret}}} .
+V_\text{FM} \;=\; -\,k_{fm}\sum_{w}\sum_{(i,j)\in w}\;\sum_{f} w_f\,
+\exp\!\left(-\frac{\bigl(r_{ij}-r_{ij}^{f}\bigr)^2}{2\,\sigma_{ij}^2}\right).
 $$
+
+For **retrieval** the inner sum runs over the top-$k$ fragments with weights set by similarity,
+$w_f = N_\text{mem}\,e^{\,s_f/\tau_\text{ret}} / \sum_g e^{\,s_g/\tau_\text{ret}}$. For **v4** the inner
+sum runs over the $K$ predicted mixture components with $w_f = N_\text{mem}\,\pi_k$ and
+$r_{ij}^{f}=\mu_k$ — the *same energy form*, which is why the output is an ordinary `MemoryWells` and
+the force field never changes.
 
 ### Reading the energy
 
-> **The Gaussian well.** Each retrieved distance $r_{ij}^{f}$ becomes one term that is *most
-> favorable* (lowest energy) when the target distance $r_{ij}$ equals it, and that weakens smoothly
-> as $r_{ij}$ moves away. $\sigma_{ij}$ sets the tolerance (how far you can drift before the term
-> stops helping); the leading minus sign means *matching the retrieved geometry lowers the energy*.
-> It is a soft *distance preference*, not a rigid restraint and not a permanent bond — calling it a
-> "spring" is only loosely right, since a Gaussian is not harmonic. Several retrieved fragments
-> create several preferred distances at once for the same atom pair.
+> **The Gaussian well.** Each preferred distance $r_{ij}^{f}$ becomes one term that is *most
+> favorable* when the target distance $r_{ij}$ equals it and weakens smoothly as $r_{ij}$ moves away.
+> $\sigma_{ij}$ sets the tolerance; the leading minus sign means *matching the preferred geometry
+> lowers the energy*. It is a soft *distance preference*, not a rigid restraint or a permanent bond.
+> Several preferred distances create several wells at once for the same atom pair.
 
-> **`top_k` vs `n_mem` (both default to 20, but they are different knobs).** `top_k` = *how many*
-> database fragments are retrieved per window. `n_mem` = the *total weight* those fragments share
-> ($\sum_f w_f = N_\text{mem}$), i.e. the overall depth/strength of that window's wells. With
-> `top_k = n_mem = 20` the *average* fragment weight is 1, but individual weights vary with
-> similarity. Raising `n_mem` makes the wells stronger; raising `top_k` lets more geometries
-> contribute.
+> **`top_k` vs `n_mem` (retrieval; both default 20).** `top_k` = *how many* fragments are retrieved.
+> `n_mem` = the *total weight* they share ($\sum_f w_f = N_\text{mem}$) — the overall strength of that
+> window's wells. Raising `n_mem` deepens the wells; raising `top_k` lets more geometries contribute.
 
-> **Backoff.** Where a window has *no* confident neighbour (its best similarity $\max_f s_f$ is below
-> `backoff_sim`, default 0.3), retrieval would only add noise, so the window instead falls back to a
-> generic distribution: the context-free **marginal distogram** (`tensors_openawsem.npz`, the same
-> tensor `fragment_db` uses). A *distogram* is a probability distribution over possible distances;
-> *marginal* means it is conditioned only on coarse variables (residue identities and sequence
-> separation), not on the full sequence context; it is **moment-matched** to one Gaussian per pair
-> (a Gaussian with the same mean and variance replaces the full curve). The 0.3 threshold is a
-> conservative heuristic, not a tuned validation-set optimum.
+> **Backoff (retrieval).** Where a window has *no* confident neighbour (best similarity below
+> `backoff_sim`, default 0.3), retrieval would add noise, so it falls back to the context-free
+> **marginal distogram** (`tensors_openawsem.npz`): a distance distribution conditioned only on
+> residue identities and separation, moment-matched to one Gaussian per pair. v4 is essentially the
+> *context-conditioned generalization of this backoff* — a learned $K$-Gaussian mixture per pair
+> instead of one context-free Gaussian.
 
 ## Geometry descriptor and the training signal
 
-The encoder is trained against a definition of structural similarity computed directly from the
-database geometry. This **geometry descriptor** is used only during training and never at inference
-(the encoder sees only sequence). The `FragmentIndex` already stores, per residue, the forward
-distances to its in-window neighbours over the nine directional atom-pair channels
-$\{$CA,CB,O$\}\times\{$CA,CB,O$\}$. A fragment's descriptor is the vector of all its in-window pair
-distances,
+Every learned version (v1, v3, v4) is trained against a definition of local structure computed
+directly from the database geometry. This **geometry descriptor** is used only during training and
+never at inference. The `FragmentIndex` stores, per residue, the forward distances to its in-window
+neighbours over nine directional atom-pair channels $\{$CA,CB,O$\}\times\{$CA,CB,O$\}$; a fragment's
+descriptor is the vector of all its in-window pair distances,
 
 $$
 g_r \;=\; \bigl(\,d^{(c)}_{ab}\,\bigr)_{0\le a<b<L,\;c\in\text{channels}},
@@ -265,17 +253,14 @@ g_r \;=\; \bigl(\,d^{(c)}_{ab}\,\bigr)_{0\le a<b<L,\;c\in\text{channels}},
 d^{(c)}_{ab} \;=\; \texttt{dist}\bigl[r+a,\; \mathrm{sep}{=}b{-}a,\; c\bigr].
 $$
 
-> **How big is it, concretely?** For $L = 9$ there are $\binom{9}{2}=36$ residue pairs, and with 9
-> directional atom-pair channels the descriptor nominally holds $36\times9 = 324$ distances.
-> "Directional channel" means CA→CB and CB→CA are counted as separate entries. The energy uses only
-> CA/CB pairs, but **all 9 channels feed the training descriptor**, because CA–O and O–O patterns
-> sharpen the helix/strand distinction at no cost to the metric. Glycine has no CB, so its CB
-> entries are absent (the index uses NaN, masked out); pairs that run past a segment edge are
-> likewise NaN and masked. The pipeline only ever describes *valid* full-length windows, so within
-> a window the only missing entries come from absent atoms (e.g. glycine CB).
+> **How big is it, concretely?** For $L=9$ there are $\binom{9}{2}=36$ residue pairs, and with 9
+> directional channels the descriptor holds $36\times9 = 324$ distances. "Directional channel" means
+> CA→CB and CB→CA are separate entries. The energy uses only CA/CB pairs, but **all 9 channels feed
+> the training descriptor** (CA–O and O–O sharpen the helix/strand distinction for free). Glycine has
+> no CB (those entries are NaN, masked); segment-edge pairs are likewise masked.
 
-The distance between two fragments is measured in *well-width units*, so it matches the sensitivity
-of the energy — a deviation matters in proportion to how narrow that pair's well is,
+The distance between two fragments is measured in *well-width units*, so it matches the energy's
+sensitivity — a deviation matters in proportion to how narrow that pair's well is:
 
 $$
 d_\text{struct}(r,r') \;=\; \bigl\lVert\, w\odot\bigl(g_r-g_{r'}\bigr)\,\bigr\rVert_2,
@@ -283,334 +268,192 @@ d_\text{struct}(r,r') \;=\; \bigl\lVert\, w\odot\bigl(g_r-g_{r'}\bigr)\,\bigr\rV
 w_{ab} \;=\; \frac{1}{\sigma_{ab}}, \quad \sigma_{ab}=\sigma_0\,(b-a)^{0.15}.
 $$
 
-> **Why weight by $1/\sigma_{ab}$.** A 1 Å disagreement matters more for a *narrow* well than for a
-> *broad* one. Dividing by the well width measures every distance error in units of that pair's
-> tolerance, so the training target reflects the sensitivity of the eventual energy term rather than
-> raw Ångströms. Missing entries are zero-filled (they contribute no difference); the norm is **not**
-> divided by the number of valid terms, so for the valid full windows used here — which differ only
-> by absent glycine CB atoms — the descriptors remain comparable.
+> **Why weight by $1/\sigma_{ab}$.** A 1 Å disagreement matters more for a *narrow* well than a broad
+> one. Dividing by the well width measures every distance error in units of that pair's tolerance, so
+> the training target reflects the eventual energy's sensitivity. The retrieval metric (v1/v3) uses
+> $d_\text{struct}$ to *choose* training pairs; v4 uses these same per-fragment distances as the
+> *values it learns to predict*.
 
 Code: [`openawsem/memory/ml/fingerprint.py`](../openawsem/memory/ml/fingerprint.py).
 
-## The encoders
+## Architectures: the encoders (v0–v3) and the generator (v4)
 
-All encoders map a 9-mer (with context, for v3) to a unit vector and differ only in $f_\theta$. v0 is
-parameter-free; v1 and v3 are trained (see [Metric learning](#metric-learning)). The learned head is
-a small batch-normalized MLP, `Linear→BN→ReLU→Linear→BN→ReLU→Linear`, hidden width 256, output
-$d=64$.
+All four versions read a 9-mer (with chain context, for v3/v4); v0 is parameter-free, v1/v3/v4 are
+trained. v0–v3 output a single **embedding** (then retrieve); v4 outputs a **Gaussian mixture per
+residue pair** (then emits wells directly).
 
-![ml encoder architectures v0/v1/v3](figures/ml_encoders.svg)
+![ml architectures v0/v1/v3 (retrieve) and v4 (generate)](figures/ml_encoders.svg)
 
-*The three encoders, each a chain of boxes carrying a vector of numbers from the input (grey) to the
-length-1 output (green). Box size scales with √(vector length) — a length-D vector drawn as roughly a
-√D × √D square — so a bigger box literally means more numbers.*
+*The four versions as chains of boxes carrying numbers from the input (grey) to the output (green).
+Box size scales with √(vector length), so a bigger box literally means more numbers. v0/v1/v3 end in
+a length-1 embedding used to **retrieve**; v4 ends in a **Gaussian-mixture prediction** used to
+**generate** the wells — note it takes a residue pair (1312 numbers = two ESM-2 vectors + a
+separation code) and has no database step.*
 
-**Reading the architecture figure.** The plain-language box labels map to the operations defined
+**Reading the figure.** The plain-language box labels map to the operations defined
 [above](#background-the-machine-learning-vocabulary-skip-if-familiar):
 
 | figure label | operation | what it does |
 |---|---|---|
-| **input** | — | the raw numbers fed in (BLOSUM rows for v0/v1; a chain sequence for v3) |
-| **ESM-2 (frozen)** | pretrained language model | turns each residue into 640 context-aware numbers; weights fixed |
-| **average** | mean pooling | averages the window's 9 residue vectors into one |
-| **mix** | `Linear → BatchNorm → ReLU` | re-mixes the numbers into a new set of 256 (learned) |
+| **input** | — | the raw numbers fed in (BLOSUM rows for v0/v1; a chain sequence for v3/v4) |
+| **ESM-2 (frozen)** | pretrained language model | turns each residue into 640 context-aware numbers |
+| **average the 9** | mean pooling (v3) | averages the window's 9 residue vectors into one |
+| **take 2 residues + separation** | pairing (v4) | feeds the head a *pair* of residues' vectors + how far apart they are |
+| **mix** | `Linear → BatchNorm → ReLU` | re-mixes the numbers into a new set (learned) |
 | **compress** | `Linear` (no activation) | projects down to the final 64 numbers (learned) |
-| **L2-normalize** | divide by length | rescales to length 1 so only direction matters |
+| **L2-normalize** | divide by length | (v0–v3) make length 1 so only direction matters |
+| **K Gaussian wells per CA/CB pair** | mixture head | (v4) predict a few likely distances for that pair |
 
 In symbols, with $B$ the BLOSUM62 matrix and $h_i$ the frozen ESM-2 embedding of residue $i$ *in its
-full-chain context*,
+full-chain context*:
 
 $$
-\text{v0:}\;\; f_\theta(x)=\bigl[\,B[x_1,:]\,\Vert\cdots\Vert\,B[x_L,:]\,\bigr],
+\text{v0:}\;\; f_\theta(x)=\bigl[\,B[x_1,:]\Vert\cdots\Vert B[x_L,:]\,\bigr],
 \qquad
-\text{v1:}\;\; f_\theta(x)=\mathrm{MLP}_\theta\!\bigl(\bigl[\,B[x_1,:]\,\Vert\cdots\Vert\,B[x_L,:]\,\bigr]\bigr),
+\text{v1:}\;\; f_\theta(x)=\mathrm{MLP}_\theta\!\bigl(\bigl[\,B[x_1,:]\Vert\cdots\Vert B[x_L,:]\,\bigr]\bigr),
 $$
 
 $$
-\text{v3:}\;\; f_\theta(x)=\mathrm{MLP}_\theta\!\left(\frac{1}{L}\sum_{a=0}^{L-1} h_{\,s+a}\right),
+\text{v3:}\;\; z=\mathrm{normalize}\,\mathrm{MLP}_\theta\!\Bigl(\tfrac{1}{L}\textstyle\sum_{a} h_{s+a}\Bigr),
 \qquad
-z=\frac{f_\theta(x)}{\lVert f_\theta(x)\rVert_2}.
+\text{v4:}\;\; (\pi,\mu)_{ab}=\mathrm{MLP}_\theta\!\bigl([\,h_{s+a}\Vert h_{s+b}\Vert \mathrm{emb}(b{-}a)\,]\bigr).
 $$
 
-The key property of v3: each $h_i$ already encodes the whole chain (ESM-2 attends over the full
-sequence), so even a window's local embedding carries long-range context that a bare 9-mer cannot.
+The key property of v3/v4 is that each $h_i$ already encodes the whole chain (ESM-2 attends over the
+full sequence), so even a window's local representation carries long-range context a bare 9-mer
+cannot.
 
-> **What "frozen ESM-2" does, precisely.** ESM-2 is a protein language model pretrained on millions
-> of sequences; *frozen* means its weights are never changed here — it is a fixed feature generator,
-> and only the small MLP head after it is trained. ESM-2 sees the entire amino-acid sequence and so
-> produces a representation of each residue that depends on its neighbours, but it does **not** see
-> the target's experimentally determined structure. ESM-2 by itself is *not* "matching on shape": it
-> supplies contextual sequence features, and the **trained head** is what reshapes those features so
-> that embedding similarity corresponds to structural similarity.
+> **What "frozen ESM-2" does, precisely.** ESM-2 is a protein language model pretrained on millions of
+> sequences; *frozen* means its weights are never changed here — it is a fixed feature generator, and
+> only the small head after it is trained. ESM-2 sees the entire amino-acid sequence and so produces a
+> context-dependent representation of each residue, but it does **not** see the target's structure.
+> ESM-2 by itself is *not* "matching on shape": it supplies contextual sequence features, and the
+> **trained head** reshapes them — into an embedding (v3) or a distance prediction (v4).
+
+> **v4's head, in words.** Instead of summarizing the whole window into one embedding, v4 looks at
+> **each pair of residues** in the window: it takes the two residues' ESM-2 vectors plus a code for
+> how far apart they are, mixes them, and outputs a short menu of likely CA/CB distances (a
+> $K$-component Gaussian mixture, $K=4$). One ESM-2 pass per chain feeds every pair; there is no
+> database and no search.
 
 The ESM-2 features are precomputed once over the database into a memmap aligned to the
-`FragmentIndex` rows ([`ml/esm_features.py`](../openawsem/memory/ml/esm_features.py)); database
-encoding then only mean-pools and runs the head, while a query protein is run through ESM-2 once at
-generation time. Code: [`ml/encoder.py`](../openawsem/memory/ml/encoder.py),
+`FragmentIndex` rows ([`ml/esm_features.py`](../openawsem/memory/ml/esm_features.py)); a query protein
+is run through ESM-2 once at generation time. Code: [`ml/encoder.py`](../openawsem/memory/ml/encoder.py),
 [`ml/encoder_torch.py`](../openawsem/memory/ml/encoder_torch.py),
-[`ml/esm_encoder.py`](../openawsem/memory/ml/esm_encoder.py).
+[`ml/esm_encoder.py`](../openawsem/memory/ml/esm_encoder.py),
+[`ml/distogram.py`](../openawsem/memory/ml/distogram.py) (v4). The figure is generated automatically
+from the PyTorch modules by [`docs/figures/make_arch_figs.py`](figures/make_arch_figs.py).
 
-The figure is generated automatically from the PyTorch modules — forward-hook introspection → a
-semantic block spec → [neural-netz](https://typst.app/universe/package/neural-netz/) Typst → SVG — by
-[`docs/figures/make_arch_figs.py`](figures/make_arch_figs.py); the intermediate spec is in
-[`docs/figures/encoders.json`](figures/encoders.json).
+## Training
 
-## Metric learning
+The learned versions are trained in two different styles: a **metric** (v1/v3, learn to *rank*) and a
+**likelihood** (v4, learn to *predict*). Both draw their signal from the geometry descriptor above.
 
-v1 and v3 are trained so that cosine *closeness* in embedding space tracks *structural* closeness
-$d_\text{struct}$. Training is **contrastive**: it does not regress a number, it just teaches the
-encoder to rank a "should-be-close" example above "should-be-far" ones.
+### Metric learning (v1, v3)
 
-> **The vocabulary of contrastive learning.**
-> * **Anchor** — the fragment currently used as the reference point.
-> * **Positive** — a fragment that *should* be close to the anchor in embedding space, because its
->   geometry is similar.
-> * **Negative** — a fragment that should *not* be close, because its geometry differs.
-> * **Hard negative** — an especially confusing negative: similar *sequence* but different
->   *structure* — exactly the case sequence search gets wrong.
-> * **In-batch negative** — another anchor's positive, reused for free as a negative for this anchor.
+v1/v3 are trained so that cosine *closeness* in embedding space tracks *structural* closeness
+$d_\text{struct}$. Training is **contrastive**: it does not regress a number, it teaches the encoder
+to rank a "should-be-close" example above "should-be-far" ones.
 
-The whole value of learning lives in how these pairs are **mined**, because that is where a learned
-metric can beat sequence similarity:
+> **The vocabulary of contrastive learning.** **Anchor** — the reference fragment. **Positive** — a
+> fragment that *should* be close (similar geometry). **Negative** — should *not* be close (different
+> geometry). **Hard negative** — a deceptive negative: similar *sequence* but different *structure*,
+> exactly what sequence search gets wrong. **In-batch negative** — another anchor's positive, reused
+> for free as a negative.
+
+The value of learning lives in how pairs are **mined**:
 
 ```text
    anchor a  ─► f_θ ─► z_a
-   positive  =  the single structural nearest neighbour (small d_struct) on a DIFFERENT chain,
-                kept only if it is genuinely close (below a d_struct quantile)
-                 → structurally close but sequence-far : what BLOSUM would MISS
-   hard neg  =  among ~50 BLOSUM-similar fragments, the structurally-farthest one that is
-                at least 1.5x the positive's d_struct away
-                 → sequence-similar but structurally wrong : what BLOSUM gets WRONG
-                 (in-batch negatives from the other positives are added for free)
+   positive  =  structural nearest neighbour (small d_struct) on a DIFFERENT chain
+                 → structurally close but sequence-far : what sequence search MISSES
+   hard neg  =  among ~50 BLOSUM-similar fragments, the structurally-farthest one
+                 → sequence-similar but structurally wrong : what sequence search gets WRONG
 ```
 
-The positive is required to be **on a different chain** so it is a genuinely independent example of
-the same local shape — not a trivial copy of the anchor (an overlapping window of the same protein
-would be nearly identical in both sequence and structure and would teach nothing). Positives are
-found with a FAISS search over the geometry descriptors $g$; hard negatives with the existing BLOSUM
-k-mer search, filtered by $d_\text{struct}$. The chains are split by `chain_code % 7`, with the
-held-out seventh never seen in training, so evaluation is on unseen chains. Code:
-[`ml/train.py`](../openawsem/memory/ml/train.py).
-
-The loss is InfoNCE (NT-Xent):
+Positives are required to be **on a different chain** (a genuinely independent example of the same
+local shape, not a trivial overlapping copy). Chains are split by `chain_code % 7`, the held-out
+seventh never trained on, so evaluation is on unseen chains. The loss is InfoNCE (NT-Xent):
 
 $$
-\mathcal{L} \;=\; -\,\log\frac{\exp\!\bigl(z_a\!\cdot\!z_p/\tau_\text{train}\bigr)}
-{\exp\!\bigl(z_a\!\cdot\!z_p/\tau_\text{train}\bigr)+\sum_{n}\exp\!\bigl(z_a\!\cdot\!z_n/\tau_\text{train}\bigr)} .
+\mathcal{L} = -\,\log\frac{\exp(z_a\!\cdot\!z_p/\tau_\text{train})}
+{\exp(z_a\!\cdot\!z_p/\tau_\text{train})+\sum_n \exp(z_a\!\cdot\!z_n/\tau_\text{train})} .
 $$
 
-> **What the loss does, in words.** For each anchor it compares the anchor's similarity to *its*
-> positive against the anchor's similarity to all the negatives. The loss is small exactly when the
-> positive is the most similar of the bunch. Training nudges the head's weights, over and over, to
-> make that happen. Note that $d_\text{struct}$ does **not** appear in the equation: structural
-> distance is used to *choose* which fragment is the positive and which are negatives, not as a
-> numerical target. **Temperature** $\tau_\text{train}$ controls how sharply the loss focuses on the
-> closest candidates — smaller temperature makes small similarity gaps produce large changes. This is
-> a *different* parameter from the retrieval temperature $\tau_\text{ret}$ that weights neighbours at
-> generation time (0.1 vs 0.07); the document keeps them as separate symbols.
+> **In words.** For each anchor, make its similarity to *its* positive larger than to all negatives;
+> the loss is small exactly when the positive is the most similar. $d_\text{struct}$ does **not**
+> appear in the formula — it is used to *choose* the positive/negatives, not as a numerical target.
+> **Temperature** $\tau_\text{train}$ sets how sharply the loss focuses on the closest candidates (a
+> different knob from the retrieval temperature $\tau_\text{ret}$).
 
-**Why v1 fails — concretely.** v1's encoder input is the *isolated* 9-mer (its BLOSUM rows). It is a
-deterministic function of those nine letters, so **if two fragments have the same 9-residue sequence,
-v1 must give them exactly the same embedding** — even when they fold differently in different
-proteins. No amount of training capacity removes that degeneracy. v3's input includes full-chain
-context, so two identical 9-mers in different proteins get *different* ESM-2 representations and can
-be told apart. That is the entire reason v3 works and v1 does not — not "the 9-mer is too small a
-network," but "the 9-mer alone does not determine the structure."
+**Why v1 fails — concretely.** v1's input is the *isolated* 9-mer, a deterministic function of nine
+letters, so **two fragments with the same 9-residue sequence get the same embedding** even if they
+fold differently. v3's input includes full-chain context, so identical 9-mers in different proteins
+get *different* ESM-2 representations and can be told apart. That — not network size — is why v3 works
+and v1 does not. Code: [`ml/train.py`](../openawsem/memory/ml/train.py).
 
-## Mutation energy for Monte-Carlo
+### Maximum-likelihood training (v4)
 
-`MlMutationEnergy` ([`mutation.py`](../openawsem/memory/mutation.py)) evaluates the change in
-fragment-memory energy under a point mutation **on a fixed structure**.
-
-> **What `dE` means.** The 3-D structure is held fixed; only the *sequence-derived memory* changes.
-> So `dE` is the change in the **fragment-memory term only**, not total protein stability. A negative
-> $\Delta V$ means the mutation makes the fixed structure more compatible with the fragments its new
-> sequence retrieves. `dE(p, a)` is a *trial* — it does not change the engine's stored sequence;
-> `commit(p, a)` accepts the mutation and updates the stored state.
-
-A mutation at position $p$ alters only the (at most $L$) windows covering $p$; for each, the engine
-re-encodes the mutated 9-mer, re-retrieves its neighbours, rebuilds the wells, and differences the
-window energy,
+v4 does not learn a ranking; it learns to **predict the actual distances**. For each database
+fragment, the geometry descriptor gives the *observed* CA/CB distance of every in-window pair. v4 is
+trained by **maximum likelihood**: from the fragment's ESM-2 context, predict a Gaussian mixture over
+each pair's distance, and maximise the likelihood of the observed value (weighted by $1/\sigma$, as in
+$d_\text{struct}$):
 
 $$
-\Delta V \;=\; \sum_{w\ \text{covering}\ p}\Bigl(E_w[\text{mutant}] - E_w[\text{WT}]\Bigr),
-\qquad
-E_w \;=\; -\,k_{fm}\!\!\sum_{(i,j)\in w}\sum_{f} w_f\,
-\exp\!\left(-\frac{(r_{ij}-r_{ij}^{f})^2}{2\sigma_{ij}^2}\right).
+p(d \mid x) = \sum_{k=1}^{K}\pi_k(x)\,\mathcal{N}\!\bigl(d \mid \mu_k(x),\,\sigma_k\bigr),
+\qquad x = \text{ESM-2 context of the pair's two residues}.
 $$
 
-Unlike the BLOSUM-additive engines (`mc_fragments`, `fulldb`), the learned similarity is *not*
-additive over sequence positions, so there is no closed-form reweighting: the covering windows must
-be re-embedded and re-searched.
+> **In words.** "Given the sequence context of these two residues, what distances between them are
+> plausible?" The mixture is the answer — usually one sharp peak for a well-determined pair, sometimes
+> a broader or multi-peaked menu when the local geometry is genuinely ambiguous.
 
-> **This "only the covering windows change" shortcut is exact for v0/v1, but not for v3.** v0/v1
-> encode each window from its own letters, so a point mutation can only affect the $L$ windows that
-> contain it. v3 encodes a window from the *whole-chain* ESM-2 pass, where attention is global, so a
-> single mutation shifts the embeddings of *every* window. A correct v3 mutation step would therefore
-> require a fresh ESM-2 forward pass over the whole chain and a re-encode of *all* windows — far too
-> slow for high-throughput Monte-Carlo. For that reason the MC engine uses the cheap **v0** encoder;
-> v3 is a generation-time coverage tool, not a per-move design metric.
-
-With the HNSW index the v0 engine reaches roughly 234 Monte-Carlo trials per second end-to-end on
-1r69 (against about 2–3/s with an exact flat index), and `dE` agrees with a full mutant-memory
-recompute to about $10^{-5}$.
-
-### The search index (FAISS / flat / HNSW)
-
-> **Exact vs. approximate nearest-neighbour search.** For each query embedding, *exact* retrieval
-> would compute the similarity to all ≈2.3 million database embeddings and sort them — correct but
-> slow. **Approximate nearest-neighbour (ANN)** search avoids the exhaustive scan: **HNSW**
-> (Hierarchical Navigable Small World) organizes the vectors into a navigable graph and walks toward
-> the most promising neighbours, occasionally missing a true top candidate in exchange for a large
-> speed-up. **Recall** is the fraction of the exact top-$k$ that the approximate search recovers.
-> **FAISS** is the library that implements both index types; an **index** here just means the data
-> structure used to search the vectors.
-
-`EmbeddingIndex` ([`retrieval/embedding.py`](../openawsem/memory/retrieval/embedding.py)) stores the
-database vectors $z_f$ and answers top-$k$ cosine queries with two backends:
-
-| backend | recall | per query | use |
-|---------|--------|-----------|-----|
-| flat (`IndexFlatIP`, exact) | 1.000 | ~40 ms | the ΔE oracle; small databases |
-| HNSW (`IndexHNSWFlat`, graph) | 0.999 (mean top-20 overlap) | ~0.09 ms | generation and Monte-Carlo |
-
-Here recall 0.999 is the *average fraction of the exact 20 neighbours* the HNSW query returns (not
-the probability of getting all 20). The HNSW graph (`M = 32`) takes a few minutes to build, so it is
-persisted with `faiss.write_index` and reloaded; the flat index rebuilds instantly from the stored
-vectors. A numpy matmul fallback covers the case where FAISS is absent (v0 then works without any
-extra dependency).
-
-> **Timing caveat.** The per-query times above are single-query, index-already-loaded, on the
-> development machine (one RTX 3080 Ti host, FAISS-CPU search over $d=64$ vectors); they exclude index
-> load and, for v3, the one-time ESM-2 forward pass. The Monte-Carlo rate (234 trials/s) is the
-> end-to-end v0 figure including well rebuilding. Treat all of these as order-of-magnitude, not
-> portable benchmarks.
+**$\sigma$ is fixed to the AWSEM law** $\sigma_0\,\text{sep}^{0.15}$ by default. We tried *predicting*
+$\sigma$ (free-σ): it lowered in-distribution held-out error but **worsened** out-of-distribution
+panel reconstruction (a learned-sharp $\sigma$ becomes *confidently wrong* on unseen folds). The fixed
+law is a useful **regularizer** at no cost in geometry — so v4 ships fixed-σ. Code:
+[`ml/distogram.py`](../openawsem/memory/ml/distogram.py); generation in
+[`generators/ml.py::MlGen`](../openawsem/memory/generators/ml.py).
 
 ## Results
 
 All on the pc30 database (≈2.3M fragments at 30 % sequence-identity cull).
 
-> **The metrics, defined.**
-> * **Hard-negative AUC** (the *gate*) — among BLOSUM-similar fragment pairs on **unseen chains**,
->   how often does the embedding give a *higher* similarity to the structurally-close pair than to a
->   structurally-far "hard negative" pair? 0.5 = random ordering, 1.0 = perfect. This is the decisive
->   test of whether the metric learned anything sequence search doesn't already give.
-> * **Spearman** — rank correlation between embedding distance ($1-z_a\!\cdot\!z_b$) and the true
->   $d_\text{struct}$ over held-out pairs. It tests *ordering* (do embedding-closer pairs tend to be
->   structurally closer?), not exact numerical agreement.
-> * **Neighbour native-distance RMSE** — for a query window, take its 20 retrieved fragments, form the
->   weight-averaged retrieved CA/CB distance per in-window pair, and compare to the *target's own
->   native* distances; RMSE over those pairs, in nm. Lower = the retrieved fragments are
->   geometrically closer to the truth.
+### Metric gate (v0/v1/v3)
 
-| encoder | input | hard-negative AUC | Spearman($d_\text{emb},d_\text{struct}$) |
-|---------|-------|:-----------------:|:----------------------------------------:|
+> **Hard-negative AUC** (the gate) — among BLOSUM-similar pairs on **unseen chains**, how often does
+> the embedding give *higher* similarity to the structurally-close pair than to a structurally-far
+> "hard negative"? 0.5 = chance, 1.0 = perfect. **Spearman** — rank correlation between embedding
+> distance and true $d_\text{struct}$.
+
+| encoder | input | hard-negative AUC | Spearman |
+|---------|-------|:---:|:---:|
 | v0 BLOSUM-cosine | 9-mer | 0.572 | 0.150 |
 | v1 BLOSUM-MLP | 9-mer | 0.565 | — |
 | **v3 ESM-2 150M** | 9-mer in chain context | **0.748** | **0.477** |
 | **v3 ESM-2 650M** | 9-mer in chain context | **0.801** | **0.578** |
 
-The gate improves from the 150 M to the 650 M ESM-2 model (the only two sizes tested). The v3 result
-is supported by **four control analyses**: it is robust across 7 random seeds (margin ≈ 0.17 over
-v0); it needs *both* the ESM context *and* the trained head (a v1-style control trained the same way
-on BLOSUM features scores 0.542, below v0; raw mean-pooled ESM with *no* head scores only 0.585); and
-it reflects real geometry, not just an ordering — v3 retrieves geometrically closer fragments
-(weighted neighbour native-distance RMSE 0.271 nm vs v0 0.370 nm).
+v1 ≈ v0 (an isolated 9-mer can't separate hard negatives); **v3 wins decisively** and improves with
+ESM size. The v3 result is supported by four controls: robust across 7 seeds; needs *both* ESM context
+*and* the trained head (raw mean-pooled ESM with no head scores only 0.585); and it retrieves
+geometrically closer fragments (neighbour native-distance RMSE 0.271 nm vs v0 0.370 nm).
 
-> **Scope of the "no leakage" claim.** The head trains on a disjoint set of chains, and the structural
-> labels are database coordinates ESM never sees — so there is no *direct chain overlap and no direct
-> label leakage*. But the split is **chain-level, not homology-level**: homologous proteins may fall
-> on both sides of the split, and ESM-2 was pretrained on a broad sequence corpus that may include
-> related sequences. The gate is best read as "generalizes to unseen *chains*," not "to unseen
-> *folds*."
+> **Scope of "unseen."** The chain split is **chain-level, not homology-level** — homologous proteins
+> may fall on both sides, and ESM-2 was pretrained on a broad corpus. Read the gate as "generalizes to
+> unseen *chains*," not unseen *folds*.
 
-### Folding
+### Folding — the real test (all versions)
 
-The ultimate test is whether better retrieval folds proteins better. On a panel of **8 proteins, none
-present as an exact database chain**, each folded from extended (2 replicates, 8×10⁶ steps) with the
-**conventional** PSI-BLAST fragment memory (homologs excluded, `brain_damage=1`), the **v0** memory,
-and the **v3** memory — *same force field, only the fragment-memory generation differs* — the tail
-fold quality $Q$ is:
+The ultimate test is whether the memory folds proteins. On a panel of **8 proteins, none present as an
+exact database chain**, each folded from extended (2 replicates, 8×10⁶ steps) — *same force field,
+only the fragment-memory generation differs* — the tail fold quality $Q$ is:
 
-> **What $Q$ and "tail $Q$" mean.** $Q$ is the fraction of native contacts present, ranging from ≈0
-> (unrelated to native) to 1 (native-like). "Tail $Q$" here is the **mean $Q$ over the last 10 % of
-> the trajectory** (the cooled-down basin), averaged over the 2 replicates. Two replicates is too few
-> to resolve differences of ≈0.01 from run-to-run variance — read those as ties.
+> **$Q$ and "tail $Q$."** $Q$ = fraction of native contacts present (≈0 unrelated, 1 native-like).
+> "Tail $Q$" = mean $Q$ over the last 10 % of the trajectory, averaged over 2 replicates. Two
+> replicates can't resolve differences of ≈0.01 — read those as ties.
 
-| target | class | conventional | v0 | v3 |
-|--------|-------|:---:|:---:|:---:|
-| 1enh | α | 0.53 | 0.30 | **0.67** |
-| 2gb1 | β | 0.38 | 0.40 | **0.72** |
-| 2cro | α | 0.33 | 0.32 | **0.49** |
-| 1r69 | α | **0.53** | 0.42 | 0.50 |
-| 1ctf | α/β | 0.33 | 0.33 | **0.40** |
-| 1ubq | α/β | 0.27 | **0.63** | **0.63** |
-| 1shg | β | 0.32 | **0.60** | 0.59 |
-| 1csp | β | 0.29 | **0.29** | 0.28 |
-| **mean** | | **0.372** | **0.412** | **0.534** |
-
-On this *homolog-excluded* panel, **v3 has the best mean $Q$ (0.534) and the best or tied-best $Q$ on
-6 of 8 targets**; v0 (0.412) already edges the conventional PSI-BLAST memory (0.372). The large v3
-wins are targets where both v0 *and* conventional fail to fold ($Q\approx0.3$–$0.4$) and v3 reaches
-near-native (1enh, 2gb1, 2cro). Conventional wins outright only on 1r69 — exactly the saturated
-single-target case used in earlier tests, which is why that comparison was inconclusive and the
-multi-target panel was needed. The caveat cuts both ways: excluding homologs (`brain_damage=1`) is the
-fair *de novo* setting but strips conventional of its best templates (e.g. 1ubq collapses to 0.27),
-which is precisely the coverage gap a structural metric is meant to fill. A cheap CPU retrieval screen
-(the neighbour-distance RMSE above) predicts the fold direction and can pre-select targets before
-paying for folding.
-
-### Summary
-
-* **v0** ships as the dependency-light default; its wells are numerically ≈ `local_db` (per-pair
-  energy correlation 0.94–0.99) and it beats the context-free marginal.
-* **v1** (a learned metric on the bare 9-mer) buys nothing — under the tested architecture, mining,
-  and hyperparameters it does not beat v0, for the structural reason given above (an isolated 9-mer
-  cannot distinguish same-sequence/different-structure fragments).
-* **v3** (a head on frozen ESM-2 context) is the real result: it wins the gate by a wide,
-  size-scaling margin, retrieves geometrically better fragments, and has the best mean fold $Q$
-  (0.534) on the homolog-excluded panel — ahead of v0 (0.412) and the conventional PSI-BLAST memory
-  (0.372) — without regressing any target relative to v0.
-* The learned metric also powers a working Monte-Carlo `dE` engine (~234 trials/s via HNSW, v0
-  encoder), separate from the BLOSUM-additive `mc_fragments`/`fulldb` engines.
-
-## v4 — generative distogram: predict the wells, don't retrieve them
-
-v0/v3 all *retrieve* real fragments and copy their distances. **v4 is a fork**: it *predicts* the
-wells directly from ESM-2 context, with **no database lookup at inference**. For each in-window CA/CB
-pair it outputs a $K$-component Gaussian mixture over the pair distance; each component becomes a well
-($\text{weight}_k = N_\text{mem}\,\pi_k$, $r_\text{mean}=\mu_k$, $\sigma_k$). Because the energy
-already sums all wells sharing a $(\text{resid}_i,\text{name}_i,\text{resid}_j,\text{name}_j)$ group,
-the output is an ordinary `MemoryWells` and the force field is unchanged. v4 is the
-context-conditioned, $K$-component generalization of the retrieval backend's marginal *backoff* (which
-emits one Gaussian per pair from a context-free table). Backend: `--method ml_gen`, code
-[`generators/ml.py::MlGen`](../openawsem/memory/generators/ml.py) +
-[`ml/distogram.py`](../openawsem/memory/ml/distogram.py).
-
-**Head.** A shared per-pair MLP over $[\,h_a \Vert h_b \Vert \mathrm{emb}(\text{sep})\,]$ — the two
-residues' frozen ESM-2 vectors plus a learned separation embedding — with four independent CA/CB
-channel heads. Trained by **maximum likelihood** of each database fragment's *own* observed distance
-(the geometry descriptor of [§ Geometry descriptor](#geometry-descriptor-and-the-training-signal)),
-weighted by $1/\sigma$ as before. One ESM-2 pass per chain at generation time; the database is used
-only to *train* the head, never to generate.
-
-$$
-p(d \mid x) \;=\; \sum_{k=1}^{K}\pi_k(x)\,\mathcal{N}\!\bigl(d \mid \mu_k(x),\,\sigma_k\bigr),
-\qquad x = \text{ESM-2 context of the pair's two residues}.
-$$
-
-**$\sigma$ is fixed to the AWSEM law** $\sigma=\sigma_0\,\text{sep}^{0.15}$ by default. We tried
-*predicting* $\sigma$ (free-σ): it lowered in-distribution held-out NLL but **worsened**
-out-of-distribution panel reconstruction (e.g. 1ctf NLL 8.3 → 14.3), because a learned-sharp $\sigma$
-becomes *confidently wrong* on unseen folds. The fixed law is a useful **regularizer** against that
-overconfidence, at no cost in geometry (RMSE 0.282 vs 0.280 nm) — so v4 ships fixed-σ.
-
-**Results.** v4 clears the gates: held-out distance NLL beats the context-free marginal (Δ +0.76),
-and on the 8-panel native structures its mean E[d]-to-native **RMSE (0.282 nm) matches retrieval v3
-(0.289)** — a database-free predictor reconstructs local geometry as well as 20-fragment retrieval.
-Folding (same harness, 2 reps):
-
-| target | class | **v4-650M** | v4-150M | v3 (retrieval) | v0 | conventional |
+| target | class | **v4-650M** | v4-150M | v3 | v0 | conventional |
 |--------|-------|:---:|:---:|:---:|:---:|:---:|
 | 1r69 | α | **0.71** | 0.64 | 0.50 | 0.42 | 0.53 |
 | 2cro | α | **0.63** | 0.57 | 0.49 | 0.32 | 0.33 |
@@ -622,66 +465,67 @@ Folding (same harness, 2 reps):
 | 1shg | β | 0.53 | 0.36 | **0.59** | 0.61 | 0.32 |
 | **mean** | | **0.581** | 0.471 | 0.534 | 0.412 | 0.372 |
 
-**The 650M head is the best method overall** — mean $Q_{tail}$ **0.581**, above retrieval v3 (0.534),
-v4-150M (0.471), v0 (0.412), and conventional PSI-BLAST (0.372) — and it is **database-free**. v4-150M
-folds α well but fails β; **the 650M head recovers the β targets** (1ctf 0.43→0.66, 1csp 0.39→0.55,
-1shg 0.36→0.53, 1ubq 0.36→0.51), losing only 2gb1 to v3.
-
-The striking part: **650M's offline reconstruction was indistinguishable from 150M** (panel RMSE 0.281
-vs 0.282 nm; if anything slightly *worse* NLL) — yet it folds far better and fixes β. The
-reconstruction proxy completely missed the gain; **only folding revealed it**. (Earlier I expected the
-650M fold to be null *because* its reconstruction matched 150M — the opposite was true. The fold
-improvement comes from the *shape/modes* of the predicted mixtures, which the weighted-mean E[d]
-metric does not capture.)
-
-**Understanding the split** (figures from `scratch/.../analyze_v4.py`):
+* **v4-650M is the best method overall** (mean $Q$ 0.581) — above retrieval v3 (0.534), v4-150M
+  (0.471), v0 (0.412), conventional PSI-BLAST (0.372) — and it is **database-free**. It recovers the
+  β targets the smaller models fail (1ctf 0.43→0.66, 1csp 0.39→0.55, 1shg 0.36→0.53, 1ubq 0.36→0.51),
+  losing only 2gb1 to v3.
+* **v3** is the best *retrieval* method: ahead of v0 and conventional, winning the gate by a wide
+  margin. v0 already edges conventional PSI-BLAST on this homolog-excluded panel.
+* **v4-150M** folds α well but fails β — it needs the bigger language model.
 
 ![fold quality by target](figures/v4_fold_bars.png)
 
-*Fold quality per target across methods. v4-650M (dark) is best or tied-best on 5/8, including the
-β-sheet targets where v4-150M (orange) fails.*
+*Fold quality per target across methods. v4-650M (dark) is best or tied-best on most targets,
+including the β sheets where the 150M head fails.*
 
-![predicted mixtures: alpha vs beta](figures/v4_mixture_examples.png)
+#### The most important caveat: offline metrics do not predict folding
 
-*One CA–CA pair: v4's predicted mixture (orange) vs native (red dashed) vs v3's retrieved distances
-(blue ticks). On α (1r69, top) the prediction peaks **on** the native; on β (1shg, bottom) it peaks
-far off — sharp and **wrong**, exactly where even retrieval misses.*
+The 650M head's striking property is that its **offline reconstruction was indistinguishable from the
+150M head** — same E[d]-to-native RMSE (0.281 vs 0.282 nm), if anything slightly worse likelihood —
+**yet it folds far better and fixes β**. (We initially expected the 650M fold to be a no-op *because*
+its reconstruction matched 150M; the opposite was true.) The fold gain lives in the *shape* of the
+predicted mixtures, which the weighted-mean reconstruction metric discards.
+
+![reconstruction is flat across variants but folding is not](figures/v4_variant_rmse.png)
+
+*The lesson in one figure: **reconstruction RMSE is flat across all v4 variants (≈0.28 nm), but
+folding is not** — v4-650M folds at 0.581 vs v4-150M's 0.471 despite identical reconstruction. Offline
+geometry proxies cannot rank these generative memories; **folding is the real test.***
+
+The same disconnect shows up per target — fold success tracks fold *class*, not reconstruction
+quality:
 
 ![reconstruction does not predict beta folding](figures/v4_recon_vs_fold.png)
 ![error grows with sequence separation](figures/v4_error_vs_sep.png)
 
-*Left: fold success tracks fold **class**, not reconstruction RMSE (1ubq: best reconstruction, worst
-fold). Right: v4's geometry error grows with sequence separation and the β gap widens at long range —
-the non-local strand-register limit.*
+*Left: 1ubq has v4's best reconstruction yet a poor fold. Right: v4's geometry error grows with
+sequence separation and the β gap widens at long range — the non-local strand-register limit that the
+bigger ESM partly overcomes.*
 
-### Follow-ups: does bigger ESM, more context, or a hybrid help?
+And the mechanism, one pair at a time:
 
-* **Bigger ESM (650M) — the winner.** A head on ESM-2 650M **folds best of all methods** (mean 0.581,
-  above) and recovers the β targets v4-150M fails — so the β limit *is* partly a capacity/representation
-  problem, fixable with a bigger language model. The catch: this is **invisible offline** (its
-  reconstruction RMSE and NLL match 150M); you only see it by folding.
-* **Window context (window-pool).** Appending the window-mean ESM vector to the per-pair head is
-  **≈ neutral** on reconstruction (0.285 nm) — expected, since each ESM residue vector already carries
-  whole-chain context. (Fold deferred as the reconstruction was null; given the 650M lesson, a fold is
-  the only way to be sure — noted as a loose end.)
+![predicted mixtures: alpha vs beta](figures/v4_mixture_examples.png)
 
-![reconstruction is flat across variants but folding is not](figures/v4_variant_rmse.png)
+*One CA–CA pair: v4's predicted mixture (orange) vs native (red dashed) vs v3's retrieved distances
+(blue ticks). On α (1r69, top) the prediction peaks **on** the native; on β (1shg, bottom) it can peak
+far off — sharp and confident even where the local sequence underdetermines the strand register.*
 
-*The lesson in one figure: **reconstruction RMSE is flat across all variants (≈0.28 nm), but folding is
-not** — v4-650M folds at 0.581 vs v4-150M's 0.471 despite identical reconstruction. Offline geometry
-proxies cannot rank these generative memories; folding is the real test.*
+#### Follow-ups: bigger ESM, more context, a hybrid
 
-* **Hybrid (agreement-gated v3+v4, built on the 150M head).** Default to robust v3 retrieval; for each
-  pair, replace its wells with v4's sharper mixture **only where v4 agrees with v3** (|ΔE[d]| ≤ 0.5 Å).
-  17–45 % of pairs route to v4 (most on α/α-β, least on β). It works as designed on β — on **2gb1** it
-  recovers **0.72, matching v3** (vs v4-150M's 0.44) — but it also gives back some α wins (1r69 drops to
-  0.50), netting **0.521 ≈ v3**. The simpler 650M head beats it; a hybrid *on the 650M head* is the
-  natural next step.
+* **Bigger ESM (650M) — the winner**, as above. The β limit *is* partly a representation problem,
+  fixable with a larger language model — but only folding reveals it.
+* **Window context (window-pool).** Appending the window-mean ESM vector to v4's per-pair head is
+  ≈ neutral on reconstruction — expected, since each ESM vector already carries whole-chain context.
+  (A fold check is the honest test and is a noted loose end, given the lesson above.)
+* **Hybrid (agreement-gated v3+v4, on the 150M head).** Default to v3 retrieval; replace a pair's
+  wells with v4's sharper prediction only where the two **agree**. It recovers β (2gb1 0.72, matching
+  v3) but gives back some α, netting ≈ v3 (0.521). The plain 650M head beats it; a hybrid *on the 650M
+  head* is the natural next step.
 
 ### Performance benchmark
 
 Two operations matter: **generating** a memory (for folding) and scoring a **mutation ΔE** (for MC
-design). On 1r69 (`scratch/.../benchmark_perf.py`):
+design). On 1r69 (`scratch/20260627_v4_distogram/benchmark_perf.py`):
 
 | method | wells-gen (s) | #wells | ΔE (mut/s) | needs DB? |
 |--------|:---:|:---:|:---:|:---:|
@@ -699,37 +543,84 @@ design). On 1r69 (`scratch/.../benchmark_perf.py`):
 
 ![performance benchmark](figures/v4_benchmark.png)
 
-Two takeaways: **(1)** v4 is the fastest *database-free* generator and the **sparsest** memory (17k
-wells from a K=4 mixture vs retrieval's 85k), ~100× faster than conventional PSI-BLAST; **(2)** for
+Takeaways: **(1)** v4 is the fastest *database-free* generator and the **sparsest** memory (17k wells
+from a $K=4$ mixture vs retrieval's 85k), ~100× faster than conventional PSI-BLAST; **(2)** for
 high-throughput mutation ΔE the BLOSUM-additive `mc_fragments` engine (35k mut/s, closed form) is the
 right tool — the learned/ESM metrics are generation-time tools, not MC engines.
 
-> **Bottom line.** v4 is a genuine result: a single-forward-pass memory with **no fragment database at
-> inference**, the sparsest and (database-free) fastest-to-generate memory — and on the 650M ESM head
-> it **folds best of every method tested** (mean $Q_{tail}$ 0.581 > retrieval v3 0.534), recovering the
-> β-sheet targets the 150M head misses. The biggest lesson is methodological: **offline reconstruction
-> metrics (RMSE, NLL) do not rank these generative memories** — 650M and 150M look identical offline yet
-> fold very differently — so folding is the real gate. Open ends: 2gb1 still favors v3; a hybrid on the
-> 650M head, and a window-pool fold, are the obvious next checks.
+## Mutation energy for Monte-Carlo (retrieval)
+
+`MlMutationEnergy` ([`mutation.py`](../openawsem/memory/mutation.py)) evaluates the change in
+fragment-memory energy under a point mutation **on a fixed structure**, for the retrieval backend.
+
+> **What `dE` means.** The 3-D structure is held fixed; only the *sequence-derived memory* changes, so
+> `dE` is the change in the **fragment-memory term only**, not total stability. A negative $\Delta V$
+> means the mutation makes the fixed structure more compatible with the fragments its new sequence
+> retrieves. `dE` is a trial (no state change); `commit` accepts it.
+
+A mutation at position $p$ alters only the (at most $L$) windows covering $p$; the engine re-encodes
+those windows, re-retrieves, and differences the window energy. The learned similarity is not
+additive over positions, so there is no closed form — which is why this needs the fast **HNSW** index
+(below). With it, the **v0** engine reaches ~234–288 trials/s end-to-end on 1r69.
+
+> **Why MC uses v0, not v3/v4.** v0 encodes each window from its own letters, so a mutation touches
+> only the $L$ covering windows. v3/v4 encode from the *whole-chain* ESM-2 pass, where attention is
+> global — a single mutation shifts *every* window's representation and would need a full ESM forward
+> per move. So v3/v4 are generation-time tools; high-throughput ΔE belongs to v0 here or the
+> BLOSUM-additive `mc_fragments` engine.
+
+### The search index (FAISS / flat / HNSW) — retrieval only
+
+> **Exact vs. approximate search.** Exact retrieval compares a query to all ≈2.3M database embeddings
+> and sorts — correct but slow. **Approximate nearest-neighbour (ANN)** search (**HNSW**, a navigable
+> graph) walks toward the most promising neighbours, occasionally missing a true top candidate for a
+> large speed-up. **Recall** = fraction of the exact top-$k$ recovered. **FAISS** is the library.
+
+| backend | recall | per query | use |
+|---------|--------|-----------|-----|
+| flat (`IndexFlatIP`, exact) | 1.000 | ~40 ms | ΔE oracle; small databases |
+| HNSW (`IndexHNSWFlat`, graph) | 0.999 (mean top-20) | ~0.09 ms | generation and Monte-Carlo |
+
+The HNSW graph is persisted (`faiss.write_index`); a numpy fallback covers FAISS-absent environments
+(so v0 needs no extra dependency). **v4 uses no index at all** — it predicts the wells. Code:
+[`retrieval/embedding.py`](../openawsem/memory/retrieval/embedding.py).
+
+## Summary
+
+* **v0** — sequence cosine, no training. Dependency-light default; ≈ `local_db` numerically; already
+  edges conventional PSI-BLAST.
+* **v1** — trained metric on the bare 9-mer. Buys nothing (a 9-mer can't separate
+  same-sequence/different-structure fragments).
+* **v3** — trained head on frozen ESM-2 context. The best *retrieval* method: wins the metric gate by
+  a wide, size-scaling margin and folds better than sequence search.
+* **v4** — predict the wells directly from ESM-2 context, **no database**. On the **650M** model it is
+  the **best folding method of all** (mean $Q$ 0.581 > v3 0.534), recovering β sheets, with the
+  sparsest and fastest-to-generate memory.
+* **Methodological headline:** offline reconstruction metrics (RMSE, NLL) do **not** rank these
+  generative memories — 650M and 150M look identical offline yet fold very differently. Folding is the
+  real gate. Open ends: 2gb1 still favours v3; a hybrid on the 650M head and a window-pool fold are the
+  obvious next checks.
+* The retrieval metric also powers a Monte-Carlo `dE` engine (v0 + HNSW), separate from the
+  BLOSUM-additive `mc_fragments`/`fulldb` engines.
 
 ## Usage
 
 ```bash
 conda activate openawsem_torch          # openawsem + torch (CUDA) + faiss + fair-esm
 
-# v0 — no training, works anywhere:
+# v0 — retrieval, no training, works anywhere:
 python -m openawsem.memory.cli --method ml --encoder v0 \
     --database ~/Databases/fragment_db/output_pc30 \
     --sequence target.fasta --n-mem 20 --out frags_ml_v0.json
 
-# v3 — precompute ESM-2 features once, train the head, then generate:
+# v3 — retrieval: precompute ESM-2 features once, train the head, then generate:
 python -m openawsem.memory.ml.esm_features <db> --model t30_150M --out <esm_dir>
 python -m openawsem.memory.ml.train <db> --encoder v3 --esm-dir <esm_dir> \
     --esm-model t30_150M --out enc_v3.pt
 ```
 
 ```python
-# v4 (ml_gen) — generative distogram: predict the wells from ESM-2 context, NO database at inference:
+# v4 (ml_gen) — generative: predict the wells from ESM-2 context, NO database at inference:
 from openawsem.memory.generators.ml import MlGen
 gen = MlGen("enc_v4.pt")                  # a saved DistogramModel head (query-only)
 mem = gen.generate(sequence)              # one ESM-2 pass per chain -> MemoryWells
@@ -739,28 +630,25 @@ mem.save("frags_ml_v4.json")
 ```python
 from openawsem.memory.generators.ml import Ml
 
-# Monte-Carlo sequence design with the learned ΔE (HNSW index for speed):
+# Monte-Carlo sequence design with the retrieval ΔE engine (HNSW index for speed):
 gen = Ml("~/Databases/fragment_db/output_pc30", encoder="v0", index_type="hnsw")
 eng = gen.mutation_engine(sequence, structure)
-eng.total_energy()         # current fragment-memory energy
-eng.dE(position, "A")      # energy change of a trial mutation (no state change)
-eng.commit(position, "A")  # accept the mutation
+eng.total_energy(); eng.dE(position, "A"); eng.commit(position, "A")
 ```
 
-Key constructor parameters of `Ml`:
+Key constructor parameters of `Ml` (retrieval):
 
 | parameter | default | role |
 |-----------|---------|------|
-| `database` | | `fragdb` output directory with a built `fragment_index/` |
+| `database` | | `fragdb` output dir with a built `fragment_index/` |
 | `encoder` | `"v0"` | `"v0"`, or an `Esm2Encoder`/path for a learned encoder |
-| `embedding_index` | `None` | directory of a prebuilt `EmbeddingIndex` (else built in memory) |
-| `index_type` | `"flat"` | `"flat"` (exact) or `"hnsw"` (fast, for generation / Monte-Carlo) |
-| `top_k` | 20 | fragments retrieved per window |
+| `embedding_index` | `None` | prebuilt `EmbeddingIndex` dir (else built in memory) |
+| `index_type` | `"flat"` | `"flat"` (exact) or `"hnsw"` (fast, for generation / MC) |
+| `top_k` / `n_mem` | 20 / 20 | fragments retrieved per window / total well weight |
 | `temp` | 0.07 | retrieval-weight temperature $\tau_\text{ret}$ |
-| `n_mem` | 20 | weight normalization $N_\text{mem}$ |
-| `min_seq_sep`, `max_seq_sep` | 3, 9 | pair separation range (effective cap $L-1$) |
+| `min_seq_sep`, `max_seq_sep` | 3, 9 | pair separation range |
 | `well_width` | 0.1 | $\sigma_0$ in $\sigma_{ij}=\sigma_0\lvert i-j\rvert^{0.15}$ (nm) |
-| `backoff`, `backoff_sim` | `True`, 0.3 | fall back to the marginal distogram for low-similarity windows |
+| `backoff`, `backoff_sim` | `True`, 0.3 | fall back to the marginal distogram for thin windows |
 | `k_fm` | 0.04184 | fragment-memory force constant (kJ/mol) |
 
 ## Glossary
@@ -771,34 +659,26 @@ For readers without a machine-learning background, in rough order of appearance.
 |---|---|
 | **model** | a function with adjustable numbers (weights) fit to data |
 | **parameter / weight** | one adjustable number inside a model |
-| **training** | adjusting the weights so the model behaves as desired on examples |
-| **inference / generation** | using a trained model on new input (here: building a memory) |
+| **training / inference** | fitting the weights / using the fitted model on new input |
 | **feature** | a precomputed numeric description of an input (e.g. ESM-2 outputs) |
 | **embedding** | a fixed-length vector summarizing an input, compared by geometric closeness |
-| **dimension** | the number of entries in a vector (e.g. a 64-D embedding = 64 numbers) |
 | **encoder** | the function that produces an embedding |
-| **pretrained** | trained earlier on a separate, larger task (ESM-2) |
-| **frozen** | weights held fixed, not updated by the current training |
+| **pretrained / frozen** | trained earlier on a larger task / weights held fixed now (ESM-2) |
 | **dense / linear layer** | a weighted-sum transform $y_j=b_j+\sum_i W_{ji}x_i$ |
 | **activation (ReLU)** | a nonlinearity; ReLU sets negatives to 0 |
 | **batch normalization** | rescales intermediate values to stabilize training |
 | **MLP** | a stack of linear layers + activations operating on vectors |
 | **pooling (mean)** | combining several vectors into one by averaging |
-| **L2 normalization** | dividing a vector by its Euclidean length to make it length 1 |
+| **L2 normalization** | dividing a vector by its length to make it length 1 |
 | **cosine similarity** | dot product of two length-1 vectors = cosine of their angle |
-| **metric learning** | training embeddings so distance encodes a chosen similarity |
-| **contrastive learning** | training by ranking a positive above negatives |
-| **anchor / positive / negative** | reference / should-be-close / should-be-far example |
-| **hard negative** | a deceptive negative (similar sequence, different structure) |
-| **loss function** | the number training minimizes (here InfoNCE) |
-| **temperature** | a scale that sharpens or softens a softmax (two here: train, retrieval) |
-| **nearest neighbour** | the most similar stored item to a query |
-| **approximate nearest neighbour (ANN)** | fast, slightly inexact neighbour search (HNSW) |
-| **index** | a data structure for searching vectors (FAISS flat or HNSW) |
-| **recall** | fraction of the true top-$k$ that an approximate search recovers |
+| **Gaussian mixture** | a weighted menu of Gaussians (weight π, centre μ, width σ); v4's output |
+| **retrieval vs. generation** | choosing wells by searching a database vs. predicting them directly |
+| **metric / contrastive learning** | training embeddings so distance encodes a chosen similarity, by ranking a positive above negatives |
+| **anchor / positive / negative / hard negative** | reference / should-be-close / should-be-far / deceptive (same seq, diff structure) |
+| **maximum likelihood** | training to make the observed values most probable under the model (v4) |
+| **loss function / temperature** | the number training minimizes / a knob sharpening a softmax |
+| **nearest neighbour / ANN / index / recall** | most similar stored item / fast approximate search / the search data structure / fraction of true top-$k$ recovered |
 | **AUC** | probability a classifier ranks a true positive above a true negative (0.5 = chance) |
-| **train/validation/test split** | disjoint data subsets; here a chain-level split |
-| **data leakage** | test information seeping into training, inflating results |
-| **ablation** | removing a component to measure its contribution (the v0→v1→v3 ladder) |
-| **baseline** | the simplest method a new method must beat (v0) |
-| **out-of-distribution** | inputs unlike the training data; here: chains, not folds |
+| **train/test split / data leakage** | disjoint data subsets (here chain-level) / test info seeping into training |
+| **ablation / baseline** | removing a component to measure it / the simplest method to beat (v0) |
+| **out-of-distribution** | inputs unlike training data; here unseen chains (not necessarily unseen folds) |
