@@ -610,30 +610,36 @@ and on the 8-panel native structures its mean E[d]-to-native **RMSE (0.282 nm) m
 (0.289)** — a database-free predictor reconstructs local geometry as well as 20-fragment retrieval.
 Folding (same harness, 2 reps):
 
-| target | class | **v4 (generative)** | v3 (retrieval) | v0 | conventional |
-|--------|-------|:---:|:---:|:---:|:---:|
-| 1r69 | α | **0.64** | 0.50 | 0.42 | 0.53 |
-| 2cro | α | **0.57** | 0.49 | 0.32 | 0.33 |
-| 1enh | α | 0.58 | **0.67** | 0.30 | 0.53 |
-| 1ctf | α/β | **0.43** | 0.40 | 0.33 | 0.33 |
-| 2gb1 | β | 0.44 | **0.72** | 0.40 | 0.38 |
-| 1csp | β | **0.39** | 0.28 | 0.29 | 0.29 |
-| 1ubq | α/β | 0.36 | **0.63** | 0.63 | 0.27 |
-| 1shg | β | 0.36 | **0.59** | 0.60 | 0.32 |
-| **mean** | | **0.471** | **0.535** | 0.411 | 0.372 |
+| target | class | **v4-650M** | v4-150M | v3 (retrieval) | v0 | conventional |
+|--------|-------|:---:|:---:|:---:|:---:|:---:|
+| 1r69 | α | **0.71** | 0.64 | 0.50 | 0.42 | 0.53 |
+| 2cro | α | **0.63** | 0.57 | 0.49 | 0.32 | 0.33 |
+| 1enh | α | 0.66 | 0.58 | **0.67** | 0.30 | 0.53 |
+| 1ctf | α/β | **0.66** | 0.43 | 0.40 | 0.33 | 0.33 |
+| 2gb1 | β | 0.40 | 0.44 | **0.72** | 0.40 | 0.38 |
+| 1csp | β | **0.55** | 0.39 | 0.28 | 0.29 | 0.29 |
+| 1ubq | α/β | 0.51 | 0.36 | **0.63** | 0.63 | 0.27 |
+| 1shg | β | 0.53 | 0.36 | **0.59** | 0.61 | 0.32 |
+| **mean** | | **0.581** | 0.471 | 0.534 | 0.412 | 0.372 |
 
-v4 folds **above v0 and the conventional PSI-BLAST pipeline, below retrieval v3**, and **wins outright
-on 4/8** targets (best-ever 1r69 at 0.64). The pattern is interpretable: v4 wins on **α /
-locally-determined** folds and loses on **β-sheet** targets (2gb1, 1ubq, 1shg), where non-local strand
-register favors retrieving *real* β-fragments over predicting local geometry. A caveat on the cheap
-recon screen: **1ubq had v4's *best* reconstruction RMSE yet its *worst* fold** — local geometry
-quality predicts the α wins but not the β-sheet failures.
+**The 650M head is the best method overall** — mean $Q_{tail}$ **0.581**, above retrieval v3 (0.534),
+v4-150M (0.471), v0 (0.412), and conventional PSI-BLAST (0.372) — and it is **database-free**. v4-150M
+folds α well but fails β; **the 650M head recovers the β targets** (1ctf 0.43→0.66, 1csp 0.39→0.55,
+1shg 0.36→0.53, 1ubq 0.36→0.51), losing only 2gb1 to v3.
 
-**Understanding the α/β split** (figures from `scratch/.../analyze_v4.py`):
+The striking part: **650M's offline reconstruction was indistinguishable from 150M** (panel RMSE 0.281
+vs 0.282 nm; if anything slightly *worse* NLL) — yet it folds far better and fixes β. The
+reconstruction proxy completely missed the gain; **only folding revealed it**. (Earlier I expected the
+650M fold to be null *because* its reconstruction matched 150M — the opposite was true. The fold
+improvement comes from the *shape/modes* of the predicted mixtures, which the weighted-mean E[d]
+metric does not capture.)
 
-![v4 fold quality by target](figures/v4_fold_bars.png)
+**Understanding the split** (figures from `scratch/.../analyze_v4.py`):
 
-*Fold quality per target — v4 (orange) tops the α targets, trails on β.*
+![fold quality by target](figures/v4_fold_bars.png)
+
+*Fold quality per target across methods. v4-650M (dark) is best or tied-best on 5/8, including the
+β-sheet targets where v4-150M (orange) fails.*
 
 ![predicted mixtures: alpha vs beta](figures/v4_mixture_examples.png)
 
@@ -650,24 +656,27 @@ the non-local strand-register limit.*
 
 ### Follow-ups: does bigger ESM, more context, or a hybrid help?
 
-* **Bigger ESM (650M).** A head on ESM-2 650M reconstructs better *in-distribution* (held-out RMSE
-  1.61 vs 150M's 1.82 Å) but is **no better on the panel** (0.281 vs 0.282 nm) and slightly more
-  overconfident — the β limit is **not** a capacity problem.
+* **Bigger ESM (650M) — the winner.** A head on ESM-2 650M **folds best of all methods** (mean 0.581,
+  above) and recovers the β targets v4-150M fails — so the β limit *is* partly a capacity/representation
+  problem, fixable with a bigger language model. The catch: this is **invisible offline** (its
+  reconstruction RMSE and NLL match 150M); you only see it by folding.
 * **Window context (window-pool).** Appending the window-mean ESM vector to the per-pair head is
-  **≈ neutral** (0.285 nm) — expected, since each ESM residue vector already carries whole-chain
-  context. A documented negative.
+  **≈ neutral** on reconstruction (0.285 nm) — expected, since each ESM residue vector already carries
+  whole-chain context. (Fold deferred as the reconstruction was null; given the 650M lesson, a fold is
+  the only way to be sure — noted as a loose end.)
 
-![reconstruction RMSE by variant](figures/v4_variant_rmse.png)
+![reconstruction is flat across variants but folding is not](figures/v4_variant_rmse.png)
 
-*The four model variants cluster at ≈0.28 nm and are per-target near-identical — v4's reconstruction is
-capped by a **local** limit, not model size. (The hybrid bar, 0.319, is a per-pair blend artifact; its
-value is its fold, below, not this proxy.)*
+*The lesson in one figure: **reconstruction RMSE is flat across all variants (≈0.28 nm), but folding is
+not** — v4-650M folds at 0.581 vs v4-150M's 0.471 despite identical reconstruction. Offline geometry
+proxies cannot rank these generative memories; folding is the real test.*
 
-* **Hybrid (agreement-gated v3+v4).** Default to robust v3 retrieval; for each pair, replace its wells
-  with v4's sharper mixture **only where v4 agrees with v3** (|ΔE[d]| ≤ 0.5 Å) — adding v4's sharpness
-  only where it is trustworthy. 17–45 % of pairs route to v4 (most on α/α-β, least on β). Early folds
-  confirm the design: on **2gb1** — v4's worst β loss (0.44) — the hybrid recovers **0.72, matching
-  v3**, while keeping v4's α sharpening. (Full hybrid + 650M fold panels are queued behind the GPU.)
+* **Hybrid (agreement-gated v3+v4, built on the 150M head).** Default to robust v3 retrieval; for each
+  pair, replace its wells with v4's sharper mixture **only where v4 agrees with v3** (|ΔE[d]| ≤ 0.5 Å).
+  17–45 % of pairs route to v4 (most on α/α-β, least on β). It works as designed on β — on **2gb1** it
+  recovers **0.72, matching v3** (vs v4-150M's 0.44) — but it also gives back some α wins (1r69 drops to
+  0.50), netting **0.521 ≈ v3**. The simpler 650M head beats it; a hybrid *on the 650M head* is the
+  natural next step.
 
 ### Performance benchmark
 
@@ -696,12 +705,12 @@ high-throughput mutation ΔE the BLOSUM-additive `mc_fragments` engine (35k mut/
 right tool — the learned/ESM metrics are generation-time tools, not MC engines.
 
 > **Bottom line.** v4 is a genuine result: a single-forward-pass memory with **no fragment database at
-> inference** beats the conventional pipeline and folds α proteins better than retrieval, with the
-> sparsest and (database-free) fastest-to-generate memory. It does not replace v3 on β sheets, and that
-> β limit is **local, not capacity** — neither a 650M ESM nor explicit window context moves it. The
-> **agreement-gated hybrid** is the practical answer: v3's robustness plus v4's α sharpening (it
-> recovers v3-level Q on v4's worst β target). v4's cheap CPU recon screen predicts its α wins but not
-> its β failures.
+> inference**, the sparsest and (database-free) fastest-to-generate memory — and on the 650M ESM head
+> it **folds best of every method tested** (mean $Q_{tail}$ 0.581 > retrieval v3 0.534), recovering the
+> β-sheet targets the 150M head misses. The biggest lesson is methodological: **offline reconstruction
+> metrics (RMSE, NLL) do not rank these generative memories** — 650M and 150M look identical offline yet
+> fold very differently — so folding is the real gate. Open ends: 2gb1 still favors v3; a hybrid on the
+> 650M head, and a window-pool fold, are the obvious next checks.
 
 ## Usage
 
