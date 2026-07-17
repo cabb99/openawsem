@@ -43,23 +43,26 @@ def main(args=None):
 
     process_trajectory(args.PDBFile, args.fasta, args.output, args.start, args.end, args.stride)
 
-def get_seq_dic(fasta: str | PathLike = "../crystal_structure.fasta") -> dict[str, str]:
+def get_seq_dic(fasta: str | PathLike = "../crystal_structure.fasta") -> dict[str, dict[int, str]]:
     seq_dic = {}
     chain = None
     seq = ""
+    resindex_counter = 0
     with open(fasta) as f:
         for line in f:
             if line.startswith(">"):
                 if line[:19] == ">CRYSTAL_STRUCTURE:":
                     if chain is not None:
-                        seq_dic[chain] = seq
+                        seq_dic[chain] = {resindex_counter+i: seq[i] for i in range(len(seq))}
+                        resindex_counter += len(seq)
                     chain = line[19]
                     seq = ""
             else:
                 seq += line.replace("\n", "")
 
-        if chain is not None:
-            seq_dic[chain] = seq
+        if chain is not None: # completes the loop above, adding the last chain from the fasta file
+            seq_dic[chain] = {resindex_counter+i: seq[i] for i in range(len(seq))}
+            resindex_counter += len(seq)
         elif seq:
             # Deprecated behavior: Older AWSEM versions stored sequences without chain 
             # identifiers. While AWSEM can read chains directly from the PDB file, using 
@@ -70,13 +73,13 @@ def get_seq_dic(fasta: str | PathLike = "../crystal_structure.fasta") -> dict[st
                 DeprecationWarning,
                 stacklevel=2
             )
-            seq_dic['Unknown'] = seq
+            seq_dic['Unknown'] = {i: seq[i] for i in range(len(seq))}
     return seq_dic
 
 
 def convert_openMM_to_standard_pdb(
     fileName: str | PathLike = "last_frame.pdb",
-    seq_dic: dict[str, str] | None = None,
+    seq_dic: dict[str, dict[int, str]] | None = None,
     back: bool = True
 ) -> None:
     code = {"GLY": "G", "ALA": "A", "LEU": "L", "ILE": "I",
@@ -101,19 +104,33 @@ def convert_openMM_to_standard_pdb(
     lines = file_path.read_text().splitlines()
     new_lines = []
 
+    already_visited = {}
     for line in lines:
         if len(line) >= 4 and line[:4] == "END":
             continue
         if len(line) > 25:
             if line[:6] == "REMARK":
                 continue
+            if line[:6] == "CRYST1":
+                continue
             i = int(line[22:26])
             chain = line[21]
+            if chain == '0':
+                raise ValueError(line)
+            if chain not in already_visited:
+                already_visited.update({chain: [i]})
+            else:
+                if i not in already_visited[chain]:
+                    already_visited[chain].append(i)
 
             tmp = list(line)
             if "".join(tmp[17:20]) in ["IGL", "NGP", "IPR"]:
                 if chain in seq_dic:
-                    res = seq_dic[chain][i - 1]
+                    oneindexed_resindex = sum([len(visited) for visited in already_visited.values()])
+                    try:
+                        res = seq_dic[chain][oneindexed_resindex - 1]
+                    except KeyError as e:
+                        raise KeyError(f"seq_dic was {seq_dic}\n\n\n\ chain was {chain}\n\n\n already_visited was {already_visited}")
                 else:
                     # Deprecated: assign sequential index for Unknown chain
                     key = (chain, i)
@@ -126,7 +143,7 @@ def convert_openMM_to_standard_pdb(
             new_lines.append("".join(tmp))
         else:
             new_lines.append(line)
-
+    #breakpoint()
     file_path.write_text("\n".join(new_lines) + "\n")
 
 
