@@ -1094,62 +1094,37 @@ def _pap_efficiency_optimized(oa, term_number, ssweight_file, forceGroup, k, dis
         raise ValueError(f"term_number must be 1 or 2, but was {term_number}")
     #
     # add donor and acceptor groups
-    # here is why we make the unusual decision to add Exclusions:
-    #     Adding exclusions is risky for nonbonded forces,
-    #     so we try to avoid exclusions and build those into the
-    #     hamiltonian instead. However, CustomHbondForce is
-    #     not implemented as a nonbonded force, so it is safer.
-    #     It would still be nice to avoid exclusions for
-    #     stylistic consistency, and we will try to 
-    #     build them into the hamiltonian wherever possible.
-    #     We have kind of done that here: it doesn't make physical sense
-    #     for pairs of donors/acceptors sharing one or two common
-    #     atoms to interact with each other through this potential and,
-    #     by the design of the energy function, this interaction should
-    #     always be 0. 
-    #
-    #     But, for these Forces, apparently only on the CPU Platform,
-    #     there is another problem unrelated to the 
-    #     cancellation of unwanted potential energy terms.
-    #     You can read about this problem at
-    #     https://github.com/cabb99/openawsem/issues/94
-    #
-    #     Basically, even if their interaction energy ends up being 0,
-    #     donor-acceptor interactions involving the distance between a pair of particles --
-    #     both donors, both acceptors, or one of each -- 
-    #     that are actually the same particle in the underlying topology can
-    #     cause issues with the force calculation on the CPU platform, 
-    #     leading to overflow errors when coordinate updates are attempted
-    i_to_idx = {'donors':{}, 'acceptors':{}} # convert residue number of d1 or a1 to donor/acceptor index; needed only for term_number==1
+    donors_indices = []
+    acceptors_indices = []
     for i in range(nres):
-        if term_number == 1:
-            acc_idx = -1 # represents not having added an acceptor on this iteration
-            don_idx = -1 # represents not having added a donor on this iteration
+        if term_number == 1: #AP
             if not isChainEnd(i, oa.chain_ends, n=4):
-                acc_idx = pap.addAcceptor(ca[i], ca[i+4], -1, [i])
-                i_to_idx['acceptors'].update({i:acc_idx})
+                a1, a2 = ca[i], ca[i+4]
+                acceptor_idx = pap.addAcceptor(a1, a2, -1, [i])
+                acceptors_indices.append((a1, a2, acceptor_idx))
             if not isChainStart(i, oa.chain_starts, n=4):
-                don_idx = pap.addDonor(oa.ca[i], oa.ca[i-4], -1, [i])
-                i_to_idx['donors'].update({i:don_idx})
-            if acc_idx != -1 and don_idx != -1:
-                pap.addExclusion(don_idx, acc_idx)
-            if inSameChain(i, i-8, oa.chain_starts, oa.chain_ends):
-                # i-8's a2 is the same atom as i's d2, so distance(a2,d2),
-                # which factors into the energy function, is always 0 and causes problems on CPU
-                pap.addExclusion(i_to_idx['donors'][i], i_to_idx['acceptors'][i-8])
-            else:
-                try:
-                    pap.addExclusion(i_to_idx['donors'][i], i_to_idx['acceptors'][i-8])
-                except KeyError:
-                    continue
-                raise AssertionError("something unexpected happened. is there an i/i+4 or i/i-4 pair crossing a chain break?")
-        elif term_number == 2:
+                d1, d2 = ca[i], ca[i-4]
+                donor_idx = pap.addDonor(d1, d2, -1, [i])
+                donors_indices.append((d1, d2, donor_idx))
+        elif term_number == 2: #P
             if not isChainEnd(i, oa.chain_ends, n=4):
-                acc_idx = pap.addAcceptor(ca[i], ca[i+4], -1, [i])
-                don_idx = pap.addDonor(oa.ca[i], oa.ca[i+4], -1, [i])   
-                pap.addExclusion(don_idx, acc_idx) 
+                a1, a2 = ca[i], ca[i+4]
+                d1, d2 = ca[i], ca[i+4]
+                acceptor_idx = pap.addAcceptor(a1, a2, -1, [i])
+                donor_idx = pap.addDonor(d1, d2, -1, [i])
+                acceptors_indices.append((a1, a2, acceptor_idx))
+                donors_indices.append((d1, d2, donor_idx))
         else:
             raise ValueError(f"term_number must be 1 or 2, but was {term_number}")
+    
+    # The energy uses distance(a1,d1) and distance(a2,d2) over every donor/acceptor pair
+    # within the cutoff. When a donor and an acceptor use the same CA atom in one of those
+    # slots the distance is zero. The pair contributes no energy, but the zero-length
+    # distance breaks the force on the CPU platform (issue #94). 
+    for d1, d2, donor_idx in donors_indices:
+        for a1, a2, acceptor_idx in acceptors_indices:
+            if d1 == a1 or d2 == a2:
+                pap.addExclusion(donor_idx, acceptor_idx)
     # sanity check
-    assert pap.getNumDonors() == pap.getNumAcceptors() # there might be an edge case for very short chains where this should be expected to fail
+    assert pap.getNumDonors() == pap.getNumAcceptors()
     return pap
