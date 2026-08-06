@@ -850,6 +850,7 @@ class OpenMMAWSEMSystem:
         else:
             self.fixed_atom_indices = []
         if not includeLigands:
+            self._pdb.topology._bonds = [] # we need to think about this some more
             self.system = self.forcefield.createSystem(self.pdb.topology)
             # define convenience variables
             self.nres = self.pdb.topology.getNumResidues()
