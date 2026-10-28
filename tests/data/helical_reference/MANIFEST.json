@@ -1,0 +1,509 @@
+{
+ "lammps": [
+  "Large-scale Atomic/Molecular Massively Parallel Simulator - 22 Jul 2025 - Update 6",
+  "Git info (HEAD / stable_22Jul2025_update6-modified)"
+ ],
+ "commits": {
+  "awsemmd": "295fefe2a942c4c973fd49cc5e632fc0744f035f",
+  "openawsem": "4289e315570461097572a57d08aac7c1a9e0eefd"
+ },
+ "pdb_sources": {
+  "h4": "awsemmd:tests/debugging/h4/h4.pdb",
+  "1r69": "openawsem:tests/data/1r69.pdb",
+  "1cta": "awsemmd:examples/examples_new/1CTA_Dimer_Binding/1ctaDimer.pdb",
+  "fis": "awsemmd:examples/examples_new/fisDNA_example/buildProtein/fis.pdb",
+  "1mbn": "openawsem:tests/data/1mbn-crystal_structure.pdb",
+  "2xov": "openawsem:examples/2xov/2xov.pdb",
+  "1ubq": "openawsem:tests/data/1ubq-crystal_structure.pdb",
+  "1srl": "awsemmd:examples/examples_for_9Oct12_version/1SRL_Go-Model/1SRL.pdb"
+ },
+ "cases": {
+  "h4_default": {
+   "description": "Histone H4 N-terminal tail from the AWSEM-MD debugging set, disordered control (26 res)",
+   "params": "default",
+   "n_residues": 26,
+   "n_chains": 1,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -0.0009,
+    -0.000243,
+    9e-06,
+    -0.000239,
+    0.0,
+    -0.080761
+   ]
+  },
+  "1r69_default": {
+   "description": "434 repressor N-terminal domain, 5 helices (63 res)",
+   "params": "default",
+   "n_residues": 63,
+   "n_chains": 1,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -66.463794,
+    -50.564701,
+    -30.652067,
+    -12.166926,
+    10.204505,
+    -57.241851
+   ]
+  },
+  "1cta_default": {
+   "description": "Troponin C site III helix-loop-helix homodimer (2 x 34 res)",
+   "params": "default",
+   "n_residues": 68,
+   "n_chains": 2,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -52.557367,
+    -52.528822,
+    -25.197047,
+    -8.292908,
+    18.081049,
+    -45.77531
+   ]
+  },
+  "fis_default": {
+   "description": "FIS all-helical homodimer",
+   "params": "default",
+   "n_residues": 189,
+   "n_chains": 2,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -190.889394,
+    -145.250394,
+    -75.329054,
+    -5.893262,
+    38.813297,
+    -158.487265
+   ]
+  },
+  "1mbn_default": {
+   "description": "Sperm whale myoglobin (153 res)",
+   "params": "default",
+   "n_residues": 153,
+   "n_chains": 1,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -160.634083,
+    -124.475653,
+    -90.319926,
+    -28.864774,
+    41.749249,
+    -142.071177
+   ]
+  },
+  "2xov_default": {
+   "description": "GlpG rhomboid, membrane helical bundle",
+   "params": "default",
+   "n_residues": 181,
+   "n_chains": 1,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -205.962015,
+    -156.083801,
+    -111.580894,
+    -44.200017,
+    29.649921,
+    -184.003004
+   ]
+  },
+  "1r69_1r69_example": {
+   "description": "434 repressor N-terminal domain, 5 helices (63 res)",
+   "params": "1r69_example",
+   "n_residues": 63,
+   "n_chains": 1,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -22.677691,
+    -16.163864,
+    -13.315494,
+    -5.782581,
+    3.777984,
+    -18.444746
+   ]
+  },
+  "1cta_1r69_example": {
+   "description": "Troponin C site III helix-loop-helix homodimer (2 x 34 res)",
+   "params": "1r69_example",
+   "n_residues": 68,
+   "n_chains": 2,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -17.189908,
+    -14.940922,
+    -7.266804,
+    -1.336403,
+    6.394871,
+    -14.349394
+   ]
+  },
+  "1mbn_1r69_example": {
+   "description": "Sperm whale myoglobin (153 res)",
+   "params": "1r69_example",
+   "n_residues": 153,
+   "n_chains": 1,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -52.819153,
+    -48.107952,
+    -29.324452,
+    -7.69663,
+    14.717206,
+    -44.894529
+   ]
+  },
+  "1ubq_1r69_example": {
+   "description": "Ubiquitin, alpha/beta control",
+   "params": "1r69_example",
+   "n_residues": 76,
+   "n_chains": 1,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -6.584406,
+    -3.423761,
+    -3.235531,
+    -0.171052,
+    1.457532,
+    -4.189746
+   ]
+  },
+  "1srl_1r69_example": {
+   "description": "Src SH3, all-beta control",
+   "params": "1r69_example",
+   "n_residues": 56,
+   "n_chains": 1,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    1.755342,
+    1.348522,
+    0.02587,
+    0.003944,
+    -0.10236,
+    2.155143
+   ]
+  },
+  "1mbn_pro_acceptor": {
+   "description": "Myoglobin with pro_acceptor_flag on",
+   "params": "pro_acceptor",
+   "n_residues": 153,
+   "n_chains": 1,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -173.100441,
+    -139.558897,
+    -96.308685,
+    -37.95422,
+    46.295726,
+    -167.799415
+   ]
+  },
+  "1r69_i_diff3": {
+   "description": "1R69 with i_diff = 3",
+   "params": "i_diff3",
+   "n_residues": 63,
+   "n_chains": 1,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -32.726094,
+    -30.147991,
+    -15.871074,
+    -5.638657,
+    1.774292,
+    -62.79565
+   ]
+  },
+  "fis_modified": {
+   "description": "FIS dimer with every parameter changed",
+   "params": "modified",
+   "n_residues": 189,
+   "n_chains": 2,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -159.383927,
+    -136.915728,
+    -77.109527,
+    -41.79423,
+    -21.85435,
+    -118.23291
+   ]
+  },
+  "glypro_default": {
+   "description": "Helix with Gly/Pro everywhere",
+   "params": "default",
+   "n_residues": 20,
+   "n_chains": 1,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    30.872454,
+    13.215268,
+    13.723624,
+    -9.07693,
+    -7.586035,
+    30.738703
+   ]
+  },
+  "glypro_pro_acceptor": {
+   "description": "Same, proline acceptor propensity switched on",
+   "params": "pro_acceptor",
+   "n_residues": 20,
+   "n_chains": 1,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    9.883075,
+    2.715749,
+    -8.613045,
+    1.711083,
+    -3.128959,
+    -2.15005
+   ]
+  },
+  "short_chains": {
+   "description": "Chains of 1, 2, 4, 5, 6 and 22 residues packed as in myoglobin",
+   "params": "1r69_example",
+   "n_residues": 40,
+   "n_chains": 6,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -8.040586,
+    -7.06013,
+    -2.821516,
+    0.007491,
+    3.317748,
+    -4.623073
+   ]
+  },
+  "single_residue_chains": {
+   "description": "Twelve one-residue chains (no pairs; density across chains only)",
+   "params": "1r69_example",
+   "n_residues": 12,
+   "n_chains": 12,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "cutoff_edge": {
+   "description": "Stretched helix: O-N distances straddle the 6 A cutoff",
+   "params": "default",
+   "n_residues": 20,
+   "n_chains": 1,
+   "frames": [
+    "scale1.9",
+    "scale1.95",
+    "scale2.0",
+    "scale2.05",
+    "scale2.1"
+   ],
+   "energies": [
+    0.007218,
+    0.003198,
+    0.001352,
+    0.000547,
+    0.000211
+   ]
+  },
+  "cutoff_short": {
+   "description": "Native/noisy helix with a 3.2 A O-N cutoff: many pairs straddle it with sizeable weight",
+   "params": "short_cutoff",
+   "n_residues": 20,
+   "n_chains": 1,
+   "frames": [
+    "native",
+    "noise0.25",
+    "noise0.5",
+    "noise1.0",
+    "scale1.25",
+    "scale0.85"
+   ],
+   "energies": [
+    -7.443259,
+    -6.938908,
+    -0.523611,
+    1.728226,
+    0.0,
+    -21.609639
+   ]
+  },
+  "compressed": {
+   "description": "Strongly compressed: bead distances below the well range (rmin_theta)",
+   "params": "1r69_example",
+   "n_residues": 40,
+   "n_chains": 1,
+   "frames": [
+    "scale0.3",
+    "scale0.4",
+    "scale0.5",
+    "scale0.6"
+   ],
+   "energies": [
+    -1.979878,
+    -3.230799,
+    -1.769915,
+    -2.487456
+   ]
+  },
+  "extended": {
+   "description": "Residues pulled apart along x: no helical pairs, no density",
+   "params": "1r69_example",
+   "n_residues": 40,
+   "n_chains": 1,
+   "frames": [
+    "extended"
+   ],
+   "energies": [
+    -0.0
+   ]
+  },
+  "openawsem/1mbn_movie": {
+   "description": "OpenAWSEM 1MBN test topology and trajectory (tests/data/1mbn-openmmawsem.pdb, 1mbn-movie.dcd)",
+   "params": "1r69_example",
+   "frames": 12,
+   "energies": [
+    -52.819158,
+    -54.996761,
+    -46.816643,
+    -37.673343,
+    -38.326576,
+    -35.346951,
+    -46.282323,
+    -40.709334,
+    -45.175287,
+    -34.247389,
+    -23.385446,
+    -13.399829
+   ]
+  }
+ }
+}

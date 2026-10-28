@@ -6,3 +6,4 @@ from . import biasTerms
 from . import templateTerms
 from . import hydrogenBondTerms
 from . import constraints
+from . import helicalTerms
