@@ -1,0 +1,1338 @@
+{
+ "meta": {
+  "machine": "Linux-6.18.44-fc-v180-x86_64-with-glibc2.39",
+  "processor": "x86_64",
+  "python": "3.12.16",
+  "platform_properties": {},
+  "openmm": "8.5.2",
+  "torch": "2.12.1",
+  "torch_threads": 4,
+  "cpus": 4,
+  "note": "CPU-only container (no GPU)."
+ },
+ "rows": [
+  {
+   "method": "numpy-dense",
+   "platform": "python",
+   "n_residues": 20,
+   "setup_s": 0.0002937799999926938,
+   "eval_ms": 0.1229190002050018,
+   "max_force_err": 0.0,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-kdtree",
+   "platform": "python",
+   "n_residues": 20,
+   "setup_s": 0.0005822490002174163,
+   "eval_ms": 0.1529279998067068,
+   "max_force_err": 4.440892098500626e-16,
+   "status": "ok"
+  },
+  {
+   "method": "numba-dense",
+   "platform": "python",
+   "n_residues": 20,
+   "setup_s": 0.18022876600025484,
+   "eval_ms": 0.0071589997787668835,
+   "max_force_err": 1.2434497875801753e-14,
+   "status": "ok"
+  },
+  {
+   "method": "numba-kdtree",
+   "platform": "python",
+   "n_residues": 20,
+   "setup_s": 0.0003277860000707733,
+   "eval_ms": 0.04040200019517215,
+   "max_force_err": 1.2434497875801753e-14,
+   "status": "ok"
+  },
+  {
+   "method": "torch",
+   "platform": "python",
+   "n_residues": 20,
+   "setup_s": 0.023453126000276825,
+   "eval_ms": 0.8148080000864866,
+   "max_force_err": 1.2878587085651816e-14,
+   "status": "ok"
+  },
+  {
+   "method": "reference-loops",
+   "platform": "python",
+   "n_residues": 20,
+   "setup_s": 0.0022054090004530735,
+   "eval_ms": 1.3950900001873379,
+   "max_force_err": 1.2878587085651816e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "Reference",
+   "n_residues": 20,
+   "setup_s": 0.03316518300016469,
+   "eval_ms": 0.04333500010034186,
+   "max_force_err": 2.792313727737278,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "CPU",
+   "n_residues": 20,
+   "setup_s": 0.03263224399961473,
+   "eval_ms": 0.35630000002129236,
+   "max_force_err": 2.792313727737278,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-compound",
+   "platform": "Reference",
+   "n_residues": 20,
+   "setup_s": 11.935306728999876,
+   "eval_ms": 7.6275609999356675,
+   "max_force_err": 3.352873534367973e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-compound",
+   "platform": "CPU",
+   "n_residues": 20,
+   "setup_s": 12.200828092000393,
+   "eval_ms": 8.282190000045375,
+   "max_force_err": 3.352873534367973e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "Reference",
+   "n_residues": 20,
+   "setup_s": 0.5352156789999754,
+   "eval_ms": 0.14979200022935402,
+   "max_force_err": 3.341771304121721e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "CPU",
+   "n_residues": 20,
+   "setup_s": 0.5189605770001435,
+   "eval_ms": 7.083467000029486,
+   "max_force_err": 3.341771304121721e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "Reference",
+   "n_residues": 20,
+   "setup_s": 0.00798895200023253,
+   "eval_ms": 0.20174700011921232,
+   "max_force_err": 1.021405182655144e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "CPU",
+   "n_residues": 20,
+   "setup_s": 0.0014078809999773512,
+   "eval_ms": 0.3994659996351402,
+   "max_force_err": 1.021405182655144e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "Reference",
+   "n_residues": 20,
+   "setup_s": 0.0009242810001524049,
+   "eval_ms": 0.041447000057814876,
+   "max_force_err": 1.1102230246251565e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "CPU",
+   "n_residues": 20,
+   "setup_s": 0.000923352999961935,
+   "eval_ms": 0.22988099999565748,
+   "max_force_err": 1.1102230246251565e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "Reference",
+   "n_residues": 20,
+   "setup_s": 0.0030619509998359717,
+   "eval_ms": 1.0603279997667414,
+   "max_force_err": 1.021405182655144e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "CPU",
+   "n_residues": 20,
+   "setup_s": 0.002663157999904797,
+   "eval_ms": 1.556067999899824,
+   "max_force_err": 1.021405182655144e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "Reference",
+   "n_residues": 20,
+   "setup_s": 0.08079133599994748,
+   "eval_ms": 0.618629000200599,
+   "max_force_err": 3.7636560534792807e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "CPU",
+   "n_residues": 20,
+   "setup_s": 0.029314990999864676,
+   "eval_ms": 1.1078679999627639,
+   "max_force_err": 3.7636560534792807e-14,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-dense",
+   "platform": "python",
+   "n_residues": 50,
+   "setup_s": 0.010402394000266213,
+   "eval_ms": 0.18427299983159173,
+   "max_force_err": 0.0,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-kdtree",
+   "platform": "python",
+   "n_residues": 50,
+   "setup_s": 0.00043149000021003303,
+   "eval_ms": 0.2638420000948827,
+   "max_force_err": 1.7763568394002505e-15,
+   "status": "ok"
+  },
+  {
+   "method": "numba-dense",
+   "platform": "python",
+   "n_residues": 50,
+   "setup_s": 0.00022519000003740075,
+   "eval_ms": 0.017544000002089888,
+   "max_force_err": 8.881784197001252e-14,
+   "status": "ok"
+  },
+  {
+   "method": "numba-kdtree",
+   "platform": "python",
+   "n_residues": 50,
+   "setup_s": 0.00019960000008723,
+   "eval_ms": 0.048303000312444055,
+   "max_force_err": 8.881784197001252e-14,
+   "status": "ok"
+  },
+  {
+   "method": "torch",
+   "platform": "python",
+   "n_residues": 50,
+   "setup_s": 0.002270581999709975,
+   "eval_ms": 1.1871930000779685,
+   "max_force_err": 5.684341886080802e-14,
+   "status": "ok"
+  },
+  {
+   "method": "reference-loops",
+   "platform": "python",
+   "n_residues": 50,
+   "setup_s": 0.01005543699966438,
+   "eval_ms": 9.746953000103531,
+   "max_force_err": 1.2878587085651816e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "Reference",
+   "n_residues": 50,
+   "setup_s": 0.03886030900002879,
+   "eval_ms": 0.07178799978646566,
+   "max_force_err": 18.18737268958655,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "CPU",
+   "n_residues": 50,
+   "setup_s": 0.0340440220002165,
+   "eval_ms": 0.23891399996500695,
+   "max_force_err": 18.18737268958655,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-compound",
+   "platform": "Reference",
+   "n_residues": 50,
+   "setup_s": 156.33711191600014,
+   "eval_ms": 111.91817799999626,
+   "max_force_err": 6.288303211476887e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-compound",
+   "platform": "CPU",
+   "n_residues": 50,
+   "setup_s": 166.0019495829997,
+   "eval_ms": 114.10723299968595,
+   "max_force_err": 6.288303211476887e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "Reference",
+   "n_residues": 50,
+   "setup_s": 1.5690199480000047,
+   "eval_ms": 0.7172119999268034,
+   "max_force_err": 6.323830348264892e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "CPU",
+   "n_residues": 50,
+   "setup_s": 1.6120556010000655,
+   "eval_ms": 22.895229000369,
+   "max_force_err": 6.323830348264892e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "Reference",
+   "n_residues": 50,
+   "setup_s": 0.021134955999968952,
+   "eval_ms": 0.2912859999923967,
+   "max_force_err": 7.318590178329032e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "CPU",
+   "n_residues": 50,
+   "setup_s": 0.0019030770004064834,
+   "eval_ms": 0.5199809997975535,
+   "max_force_err": 7.318590178329032e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "Reference",
+   "n_residues": 50,
+   "setup_s": 0.0012411420002536033,
+   "eval_ms": 0.06301499979599612,
+   "max_force_err": 7.354117315117037e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "CPU",
+   "n_residues": 50,
+   "setup_s": 0.0010399059997325821,
+   "eval_ms": 0.34610500006238,
+   "max_force_err": 7.354117315117037e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "Reference",
+   "n_residues": 50,
+   "setup_s": 0.005239903000074264,
+   "eval_ms": 1.9388240002626844,
+   "max_force_err": 7.318590178329032e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "CPU",
+   "n_residues": 50,
+   "setup_s": 0.003756594999686058,
+   "eval_ms": 1.528224000139744,
+   "max_force_err": 7.318590178329032e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "Reference",
+   "n_residues": 50,
+   "setup_s": 0.022511507000217534,
+   "eval_ms": 0.7800889998179628,
+   "max_force_err": 4.432010314303625e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "CPU",
+   "n_residues": 50,
+   "setup_s": 0.032239510000181326,
+   "eval_ms": 1.0649639998518978,
+   "max_force_err": 4.432010314303625e-13,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-dense",
+   "platform": "python",
+   "n_residues": 100,
+   "setup_s": 0.010273876000155724,
+   "eval_ms": 0.4119959999115963,
+   "max_force_err": 0.0,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-kdtree",
+   "platform": "python",
+   "n_residues": 100,
+   "setup_s": 0.0006297439999798371,
+   "eval_ms": 0.2884310001718404,
+   "max_force_err": 3.552713678800501e-15,
+   "status": "ok"
+  },
+  {
+   "method": "numba-dense",
+   "platform": "python",
+   "n_residues": 100,
+   "setup_s": 0.00035459499986245646,
+   "eval_ms": 0.04510300004767487,
+   "max_force_err": 8.171241461241152e-14,
+   "status": "ok"
+  },
+  {
+   "method": "numba-kdtree",
+   "platform": "python",
+   "n_residues": 100,
+   "setup_s": 0.00027349099991624826,
+   "eval_ms": 0.08458000002065091,
+   "max_force_err": 5.5067062021407764e-14,
+   "status": "ok"
+  },
+  {
+   "method": "torch",
+   "platform": "python",
+   "n_residues": 100,
+   "setup_s": 0.002509906999875966,
+   "eval_ms": 1.5369409998129413,
+   "max_force_err": 6.394884621840902e-14,
+   "status": "ok"
+  },
+  {
+   "method": "reference-loops",
+   "platform": "python",
+   "n_residues": 100,
+   "setup_s": 0.025205833000200073,
+   "eval_ms": 23.62814799971602,
+   "max_force_err": 1.2878587085651816e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "Reference",
+   "n_residues": 100,
+   "setup_s": 0.041372676999799296,
+   "eval_ms": 0.1233799998772156,
+   "max_force_err": 18.18737268961339,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "CPU",
+   "n_residues": 100,
+   "setup_s": 0.03319213900022078,
+   "eval_ms": 0.33795099989220034,
+   "max_force_err": 18.18737268961339,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "Reference",
+   "n_residues": 100,
+   "setup_s": 3.0488074989998495,
+   "eval_ms": 1.5952680000737018,
+   "max_force_err": 6.430411758628907e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "CPU",
+   "n_residues": 100,
+   "setup_s": 3.0628003900001204,
+   "eval_ms": 44.42982399996254,
+   "max_force_err": 6.430411758628907e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "Reference",
+   "n_residues": 100,
+   "setup_s": 0.0290182450003158,
+   "eval_ms": 0.4531589997895935,
+   "max_force_err": 7.354117315117037e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "CPU",
+   "n_residues": 100,
+   "setup_s": 0.0023780280002938525,
+   "eval_ms": 0.7111959998837847,
+   "max_force_err": 7.354117315117037e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "Reference",
+   "n_residues": 100,
+   "setup_s": 0.0013779189998786023,
+   "eval_ms": 0.10195999993811711,
+   "max_force_err": 7.389644451905042e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "CPU",
+   "n_residues": 100,
+   "setup_s": 0.001499005999903602,
+   "eval_ms": 0.37575600026684697,
+   "max_force_err": 7.389644451905042e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "Reference",
+   "n_residues": 100,
+   "setup_s": 0.00377226000000519,
+   "eval_ms": 1.5963870000632596,
+   "max_force_err": 7.389644451905042e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "CPU",
+   "n_residues": 100,
+   "setup_s": 0.0028175020001981466,
+   "eval_ms": 1.58896899984029,
+   "max_force_err": 7.389644451905042e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "Reference",
+   "n_residues": 100,
+   "setup_s": 0.02030771799991271,
+   "eval_ms": 1.2520810000751226,
+   "max_force_err": 4.440892098500626e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "CPU",
+   "n_residues": 100,
+   "setup_s": 0.028968939999685972,
+   "eval_ms": 1.9996799996988557,
+   "max_force_err": 4.440892098500626e-13,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-dense",
+   "platform": "python",
+   "n_residues": 200,
+   "setup_s": 0.019691627000156586,
+   "eval_ms": 1.7869419998532976,
+   "max_force_err": 5.684341886080802e-14,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-kdtree",
+   "platform": "python",
+   "n_residues": 200,
+   "setup_s": 0.0013854670000910119,
+   "eval_ms": 0.8497170001646737,
+   "max_force_err": 0.0,
+   "status": "ok"
+  },
+  {
+   "method": "numba-dense",
+   "platform": "python",
+   "n_residues": 200,
+   "setup_s": 0.0012513500000750355,
+   "eval_ms": 0.21997100020598737,
+   "max_force_err": 2.7000623958883807e-13,
+   "status": "ok"
+  },
+  {
+   "method": "numba-kdtree",
+   "platform": "python",
+   "n_residues": 200,
+   "setup_s": 0.0007609829999637441,
+   "eval_ms": 0.32865599996512174,
+   "max_force_err": 2.1671553440683056e-13,
+   "status": "ok"
+  },
+  {
+   "method": "torch",
+   "platform": "python",
+   "n_residues": 200,
+   "setup_s": 0.006198063000283582,
+   "eval_ms": 3.5401730001467513,
+   "max_force_err": 2.8066438062523957e-13,
+   "status": "ok"
+  },
+  {
+   "method": "reference-loops",
+   "platform": "python",
+   "n_residues": 200,
+   "setup_s": 0.16685078099999373,
+   "eval_ms": 82.66192300015973,
+   "max_force_err": 5.3290705182007514e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "Reference",
+   "n_residues": 200,
+   "setup_s": 0.04050641200001337,
+   "eval_ms": 0.19526400001268485,
+   "max_force_err": 18.18737262324185,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "CPU",
+   "n_residues": 200,
+   "setup_s": 0.03390208700011499,
+   "eval_ms": 0.8134549998430884,
+   "max_force_err": 18.18737262324185,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "Reference",
+   "n_residues": 200,
+   "setup_s": 6.140552048000245,
+   "eval_ms": 4.239342999881046,
+   "max_force_err": 4.714451051768265e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "CPU",
+   "n_residues": 200,
+   "setup_s": 6.353463500000089,
+   "eval_ms": 92.8496010001254,
+   "max_force_err": 4.714451051768265e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "Reference",
+   "n_residues": 200,
+   "setup_s": 0.05596355099987704,
+   "eval_ms": 0.5876909999642521,
+   "max_force_err": 5.9898752624576446e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "CPU",
+   "n_residues": 200,
+   "setup_s": 0.0024105910001708253,
+   "eval_ms": 1.4371920001394756,
+   "max_force_err": 5.9898752624576446e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "Reference",
+   "n_residues": 200,
+   "setup_s": 0.0025496739999653073,
+   "eval_ms": 0.19487800000206335,
+   "max_force_err": 5.6203930398623925e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "CPU",
+   "n_residues": 200,
+   "setup_s": 0.0022687560003760154,
+   "eval_ms": 0.47010700018290663,
+   "max_force_err": 5.6203930398623925e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "Reference",
+   "n_residues": 200,
+   "setup_s": 0.006434553999952186,
+   "eval_ms": 3.2841940001162584,
+   "max_force_err": 5.9898752624576446e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "CPU",
+   "n_residues": 200,
+   "setup_s": 0.005792578000182402,
+   "eval_ms": 2.5203780000992992,
+   "max_force_err": 5.9898752624576446e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "Reference",
+   "n_residues": 200,
+   "setup_s": 0.02306538000038927,
+   "eval_ms": 2.2016610000719083,
+   "max_force_err": 6.860290113763767e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "CPU",
+   "n_residues": 200,
+   "setup_s": 0.031646866999835765,
+   "eval_ms": 2.4473820003549918,
+   "max_force_err": 6.860290113763767e-12,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-dense",
+   "platform": "python",
+   "n_residues": 400,
+   "setup_s": 0.01456327699997928,
+   "eval_ms": 3.42922300023929,
+   "max_force_err": 5.684341886080802e-14,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-kdtree",
+   "platform": "python",
+   "n_residues": 400,
+   "setup_s": 0.0014609319996452541,
+   "eval_ms": 0.8759460001783737,
+   "max_force_err": 0.0,
+   "status": "ok"
+  },
+  {
+   "method": "numba-dense",
+   "platform": "python",
+   "n_residues": 400,
+   "setup_s": 0.002383208000082959,
+   "eval_ms": 0.42329699999754666,
+   "max_force_err": 4.263256414560601e-13,
+   "status": "ok"
+  },
+  {
+   "method": "numba-kdtree",
+   "platform": "python",
+   "n_residues": 400,
+   "setup_s": 0.0008756900001571921,
+   "eval_ms": 0.40760299998510163,
+   "max_force_err": 4.263256414560601e-13,
+   "status": "ok"
+  },
+  {
+   "method": "torch",
+   "platform": "python",
+   "n_residues": 400,
+   "setup_s": 0.009251537999716675,
+   "eval_ms": 5.111529000259907,
+   "max_force_err": 2.8066438062523957e-13,
+   "status": "ok"
+  },
+  {
+   "method": "reference-loops",
+   "platform": "python",
+   "n_residues": 400,
+   "setup_s": 0.3202112720000514,
+   "eval_ms": 336.7486510001072,
+   "max_force_err": 5.684341886080802e-14,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "Reference",
+   "n_residues": 400,
+   "setup_s": 0.03415712300011364,
+   "eval_ms": 0.397122999856947,
+   "max_force_err": 18.201448150871705,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "CPU",
+   "n_residues": 400,
+   "setup_s": 0.0340678239999761,
+   "eval_ms": 0.6810329996369546,
+   "max_force_err": 18.201448150871705,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "Reference",
+   "n_residues": 400,
+   "setup_s": 12.57451229299977,
+   "eval_ms": 17.875959999855695,
+   "max_force_err": 4.632738637155853e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "CPU",
+   "n_residues": 400,
+   "setup_s": 13.417214523000439,
+   "eval_ms": 197.37075700004425,
+   "max_force_err": 4.632738637155853e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "Reference",
+   "n_residues": 400,
+   "setup_s": 0.14251956799989784,
+   "eval_ms": 1.0327640002287808,
+   "max_force_err": 5.780265155408415e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "CPU",
+   "n_residues": 400,
+   "setup_s": 0.0033276530002694926,
+   "eval_ms": 1.3216379998084449,
+   "max_force_err": 5.780265155408415e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "Reference",
+   "n_residues": 400,
+   "setup_s": 0.002249441999992996,
+   "eval_ms": 0.5185630002415564,
+   "max_force_err": 5.4214410738495644e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "CPU",
+   "n_residues": 400,
+   "setup_s": 0.002337204000014026,
+   "eval_ms": 0.9182080002574367,
+   "max_force_err": 5.4214410738495644e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "Reference",
+   "n_residues": 400,
+   "setup_s": 0.010199825999734458,
+   "eval_ms": 5.076739000287489,
+   "max_force_err": 5.7838178690872155e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "CPU",
+   "n_residues": 400,
+   "setup_s": 0.009452473999772337,
+   "eval_ms": 5.020556000090437,
+   "max_force_err": 5.7838178690872155e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "Reference",
+   "n_residues": 400,
+   "setup_s": 0.0278943960001925,
+   "eval_ms": 4.369411999959993,
+   "max_force_err": 6.775024985472555e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "CPU",
+   "n_residues": 400,
+   "setup_s": 0.03495734699981767,
+   "eval_ms": 4.480078999677062,
+   "max_force_err": 6.775024985472555e-12,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-dense",
+   "platform": "python",
+   "n_residues": 800,
+   "setup_s": 0.039841268999680324,
+   "eval_ms": 12.33917100034887,
+   "max_force_err": 5.684341886080802e-14,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-kdtree",
+   "platform": "python",
+   "n_residues": 800,
+   "setup_s": 0.002525783999772102,
+   "eval_ms": 1.7647899999246874,
+   "max_force_err": 0.0,
+   "status": "ok"
+  },
+  {
+   "method": "numba-dense",
+   "platform": "python",
+   "n_residues": 800,
+   "setup_s": 0.009111165999911464,
+   "eval_ms": 1.536469000257057,
+   "max_force_err": 4.796163466380676e-13,
+   "status": "ok"
+  },
+  {
+   "method": "numba-kdtree",
+   "platform": "python",
+   "n_residues": 800,
+   "setup_s": 0.0015951370000948373,
+   "eval_ms": 0.9413900002073206,
+   "max_force_err": 5.293543381412746e-13,
+   "status": "ok"
+  },
+  {
+   "method": "torch",
+   "platform": "python",
+   "n_residues": 800,
+   "setup_s": 0.040465138999934425,
+   "eval_ms": 14.90157399985037,
+   "max_force_err": 2.8066438062523957e-13,
+   "status": "ok"
+  },
+  {
+   "method": "reference-loops",
+   "platform": "python",
+   "n_residues": 800,
+   "setup_s": 1.3902605270000095,
+   "eval_ms": 1329.8257589999594,
+   "max_force_err": 1.1013412404281553e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "Reference",
+   "n_residues": 800,
+   "setup_s": 0.03848787800006903,
+   "eval_ms": 0.7447500001944718,
+   "max_force_err": 18.201448150871705,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "CPU",
+   "n_residues": 800,
+   "setup_s": 0.03645993300006012,
+   "eval_ms": 1.0968629999297264,
+   "max_force_err": 18.201448150871705,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "Reference",
+   "n_residues": 800,
+   "setup_s": 26.469899181000073,
+   "eval_ms": 58.955688000423834,
+   "max_force_err": 5.758948873335612e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "CPU",
+   "n_residues": 800,
+   "setup_s": 29.499298961000022,
+   "eval_ms": 409.5656439999402,
+   "max_force_err": 5.758948873335612e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "Reference",
+   "n_residues": 800,
+   "setup_s": 0.23957526800040796,
+   "eval_ms": 2.0264870004211843,
+   "max_force_err": 6.043165967639652e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "CPU",
+   "n_residues": 800,
+   "setup_s": 0.004885790000116685,
+   "eval_ms": 2.294046999850252,
+   "max_force_err": 6.043165967639652e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "Reference",
+   "n_residues": 800,
+   "setup_s": 0.0036937220002073445,
+   "eval_ms": 1.099653999972361,
+   "max_force_err": 6.0040861171728466e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "CPU",
+   "n_residues": 800,
+   "setup_s": 0.004083613000148034,
+   "eval_ms": 1.4604230000259122,
+   "max_force_err": 6.0040861171728466e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "Reference",
+   "n_residues": 800,
+   "setup_s": 0.03124832100002095,
+   "eval_ms": 17.06009500003347,
+   "max_force_err": 6.036060540282051e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "CPU",
+   "n_residues": 800,
+   "setup_s": 0.02693649299999379,
+   "eval_ms": 15.084234999903856,
+   "max_force_err": 6.036060540282051e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "Reference",
+   "n_residues": 800,
+   "setup_s": 0.05356673699998282,
+   "eval_ms": 21.169415000258596,
+   "max_force_err": 6.775024985472555e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "CPU",
+   "n_residues": 800,
+   "setup_s": 0.055480724000062764,
+   "eval_ms": 14.827918999799294,
+   "max_force_err": 6.775024985472555e-12,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-dense",
+   "platform": "python",
+   "n_residues": 1600,
+   "setup_s": 0.08777472300016598,
+   "eval_ms": 52.90707000040129,
+   "max_force_err": 5.684341886080802e-14,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-kdtree",
+   "platform": "python",
+   "n_residues": 1600,
+   "setup_s": 0.004569108999930904,
+   "eval_ms": 3.4172680002484412,
+   "max_force_err": 0.0,
+   "status": "ok"
+  },
+  {
+   "method": "numba-dense",
+   "platform": "python",
+   "n_residues": 1600,
+   "setup_s": 0.03822972500029209,
+   "eval_ms": 5.516545000318729,
+   "max_force_err": 4.760636329592671e-13,
+   "status": "ok"
+  },
+  {
+   "method": "numba-kdtree",
+   "platform": "python",
+   "n_residues": 1600,
+   "setup_s": 0.003119853000043804,
+   "eval_ms": 2.005150999593752,
+   "max_force_err": 4.227729277772596e-13,
+   "status": "ok"
+  },
+  {
+   "method": "torch",
+   "platform": "python",
+   "n_residues": 1600,
+   "setup_s": 0.09999170000037338,
+   "eval_ms": 70.06102100012868,
+   "max_force_err": 4.121147867408581e-13,
+   "status": "ok"
+  },
+  {
+   "method": "reference-loops",
+   "platform": "python",
+   "n_residues": 1600,
+   "setup_s": 5.0037597269997605,
+   "eval_ms": 5214.081690000057,
+   "max_force_err": 1.1013412404281553e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "Reference",
+   "n_residues": 1600,
+   "setup_s": 0.05783311599998342,
+   "eval_ms": 1.4946539999982633,
+   "max_force_err": 18.21489096539368,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "CPU",
+   "n_residues": 1600,
+   "setup_s": 0.05255205100002058,
+   "eval_ms": 2.877350999824557,
+   "max_force_err": 18.21489096539368,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "Reference",
+   "n_residues": 1600,
+   "setup_s": 57.40694396400022,
+   "eval_ms": 196.5466550000201,
+   "max_force_err": 5.7696070143720135e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "CPU",
+   "n_residues": 1600,
+   "setup_s": 64.2368992239999,
+   "eval_ms": 1058.0448410000827,
+   "max_force_err": 5.7696070143720135e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "Reference",
+   "n_residues": 1600,
+   "setup_s": 0.5851830600004178,
+   "eval_ms": 3.979231999892363,
+   "max_force_err": 6.043165967639652e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "CPU",
+   "n_residues": 1600,
+   "setup_s": 0.0096842339999057,
+   "eval_ms": 4.503769000166358,
+   "max_force_err": 6.043165967639652e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "Reference",
+   "n_residues": 1600,
+   "setup_s": 0.006586679000065487,
+   "eval_ms": 2.239226000256167,
+   "max_force_err": 6.185274514791672e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "CPU",
+   "n_residues": 1600,
+   "setup_s": 0.008267102999980125,
+   "eval_ms": 2.641071999732958,
+   "max_force_err": 6.185274514791672e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "Reference",
+   "n_residues": 1600,
+   "setup_s": 0.12294901499990374,
+   "eval_ms": 96.86896199991679,
+   "max_force_err": 6.185274514791672e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "CPU",
+   "n_residues": 1600,
+   "setup_s": 0.1287563199998658,
+   "eval_ms": 67.94209999998202,
+   "max_force_err": 6.185274514791672e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "Reference",
+   "n_residues": 1600,
+   "setup_s": 0.23045874499985075,
+   "eval_ms": 75.43424699997558,
+   "max_force_err": 6.775024985472555e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "CPU",
+   "n_residues": 1600,
+   "setup_s": 0.1573478810000779,
+   "eval_ms": 77.73569699975269,
+   "max_force_err": 6.775024985472555e-12,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-dense",
+   "platform": "python",
+   "n_residues": 3200,
+   "setup_s": 0.34670176500003436,
+   "eval_ms": 226.67261200012945,
+   "max_force_err": 6.039613253960852e-14,
+   "status": "ok"
+  },
+  {
+   "method": "numpy-kdtree",
+   "platform": "python",
+   "n_residues": 3200,
+   "setup_s": 0.009143132000190235,
+   "eval_ms": 6.847513999673538,
+   "max_force_err": 0.0,
+   "status": "ok"
+  },
+  {
+   "method": "numba-dense",
+   "platform": "python",
+   "n_residues": 3200,
+   "setup_s": 0.136588336999921,
+   "eval_ms": 22.191494000253442,
+   "max_force_err": 8.313350008393172e-13,
+   "status": "ok"
+  },
+  {
+   "method": "numba-kdtree",
+   "platform": "python",
+   "n_residues": 3200,
+   "setup_s": 0.006199123999977019,
+   "eval_ms": 4.120673000215902,
+   "max_force_err": 7.851497230149107e-13,
+   "status": "ok"
+  },
+  {
+   "method": "torch",
+   "platform": "python",
+   "n_residues": 3200,
+   "setup_s": 0.4725448439999127,
+   "eval_ms": 267.59179999999105,
+   "max_force_err": 7.709388682997087e-13,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "Reference",
+   "n_residues": 3200,
+   "setup_s": 0.05390714199984359,
+   "eval_ms": 2.9123459999027546,
+   "max_force_err": 18.21489096539373,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-frozen_density",
+   "platform": "CPU",
+   "n_residues": 3200,
+   "setup_s": 0.06410366399995837,
+   "eval_ms": 3.7127279997548612,
+   "max_force_err": 18.21489096539373,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "Reference",
+   "n_residues": 3200,
+   "setup_s": 131.61448835700003,
+   "eval_ms": 700.796074000209,
+   "max_force_err": 5.8264504332328215e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-cvforce",
+   "platform": "CPU",
+   "n_residues": 3200,
+   "setup_s": 148.94394148799984,
+   "eval_ms": 2528.189608000048,
+   "max_force_err": 5.8264504332328215e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "Reference",
+   "n_residues": 3200,
+   "setup_s": 1.520123818999764,
+   "eval_ms": 7.401901999855909,
+   "max_force_err": 6.203038083185675e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numpy]",
+   "platform": "CPU",
+   "n_residues": 3200,
+   "setup_s": 0.016434011999990616,
+   "eval_ms": 9.753923999596736,
+   "max_force_err": 6.203038083185675e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "Reference",
+   "n_residues": 3200,
+   "setup_s": 0.012462603000130912,
+   "eval_ms": 4.463933999886649,
+   "max_force_err": 6.24211793365248e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[numba]",
+   "platform": "CPU",
+   "n_residues": 3200,
+   "setup_s": 0.012481039000249439,
+   "eval_ms": 6.636629999775323,
+   "max_force_err": 6.24211793365248e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "Reference",
+   "n_residues": 3200,
+   "setup_s": 0.44873972999994294,
+   "eval_ms": 281.39349299999594,
+   "max_force_err": 6.24211793365248e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-python[torch]",
+   "platform": "CPU",
+   "n_residues": 3200,
+   "setup_s": 0.4180384750002304,
+   "eval_ms": 264.26629600018714,
+   "max_force_err": 6.24211793365248e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "Reference",
+   "n_residues": 3200,
+   "setup_s": 0.7197817299997951,
+   "eval_ms": 276.39917199985575,
+   "max_force_err": 6.831868404333363e-12,
+   "status": "ok"
+  },
+  {
+   "method": "openmm-torchforce",
+   "platform": "CPU",
+   "n_residues": 3200,
+   "setup_s": 0.5938325900001473,
+   "eval_ms": 281.500995999977,
+   "max_force_err": 6.831868404333363e-12,
+   "status": "ok"
+  }
+ ]
+}
